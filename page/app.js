@@ -161,7 +161,9 @@ function showFieldError(state) {
   field.insertAdjacentElement("afterend", $("fieldError"))
   $("fieldError").textContent = LABELS[language][state]
   $("fieldError").hidden = false
-  field.focus()
+  const errorGroup = field.closest(".field") || field
+  field.focus({ preventScroll: true })
+  errorGroup.scrollIntoView({ block: "center", inline: "nearest" })
 }
 
 function renderPreview() {
@@ -388,6 +390,7 @@ function changed() {
 
 async function loadSettings() {
   settings.disabled = true
+  saveButton.disabled = true
   providerScope.disabled = true
   providerReset.disabled = true
   retryButton.hidden = true

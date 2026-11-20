@@ -35,6 +35,8 @@ class Element {
   setAttribute(name, value) { this.attributes[name] = value }
   removeAttribute(name) { delete this.attributes[name] }
   focus() { this.focused = true }
+  closest() { return this }
+  scrollIntoView(options) { this.scrollOptions = options }
   insertAdjacentElement(position, element) { this.adjacent = element }
 }
 
@@ -139,6 +141,26 @@ test("Page defaults agree with the middleware defaults", async () => {
   assert.equal(view.element("logEnabled").checked, example.log)
   assert.equal(view.element("logEnabled").disabled, true)
   assert.equal(view.element("cachedContent").disabled, true)
+  assert.equal(view.element("saveButton").disabled, true)
+  assert.equal(view.calls.length, 0)
+})
+
+test("Rereading settings locks the separate save action until the host has answered", async () => {
+  let reads = 0
+  let resolveRead
+  const view = await page({ get: async () => {
+    if (++reads === 1) return {}
+    return new Promise((resolve) => { resolveRead = resolve })
+  } })
+  await view.mode("bust")
+  assert.equal(view.element("saveButton").disabled, false)
+  const reading = view.element("retryButton").emit("click")
+  assert.equal(view.element("settings").disabled, true)
+  assert.equal(view.element("saveButton").disabled, true)
+  assert.equal(view.calls.length, 0)
+  resolveRead({})
+  await reading
+  assert.equal(view.element("settings").disabled, false)
   assert.equal(view.element("saveButton").disabled, true)
   assert.equal(view.calls.length, 0)
 })
@@ -603,6 +625,7 @@ test("Invalid advanced fields expand and focus the field; editing clears accessi
   await view.save()
   assert.equal(view.element("advancedSettings").open, true)
   assert.equal(view.element("providerIds").focused, true)
+  assert.equal(view.element("providerIds").scrollOptions.block, "center")
   assert.equal(view.element("providerIds").attributes["aria-invalid"], "true")
   assert.equal(view.element("fieldError").hidden, false)
   assert.equal(view.element("providerIds").adjacent, view.element("fieldError"))
