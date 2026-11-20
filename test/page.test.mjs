@@ -407,6 +407,28 @@ test("Literal special provider ids and display names do not become HTML or objec
   assert.equal(view.calls[0].providers.__proto__.mode, "bust")
 })
 
+test("Percentage can be saved and reloaded for a single supplier", async () => {
+  const view = await page({ options: {} })
+  await view.scope("alpha")
+  await view.mode("bust")
+  await view.change("rotationStrategy", "percent")
+  assert.equal(view.element("rotationPercentField").hidden, false)
+  assert.equal(Number(view.element("rotationPercent").value), 5)
+  await view.change("rotationPercent", "101")
+  await view.save()
+  assert.equal(view.element("status").dataset.state, "invalidPercent")
+  assert.equal(view.calls.length, 0)
+  await view.change("rotationPercent", "5.5")
+  await view.save()
+  const saved = view.calls[0]
+  assert.equal(saved.mode, "passthrough")
+  assert.equal(saved.providers.alpha.rotation.percent, 5.5)
+  const reopened = await page({ options: saved })
+  await reopened.scope("alpha")
+  assert.equal(reopened.element("rotationStrategy").value, "percent")
+  assert.equal(Number(reopened.element("rotationPercent").value), 5.5)
+})
+
 test("Switching language preserves the selected provider and its unsaved threshold", async () => {
   const view = await page({ options: {} })
   await view.scope("alpha")

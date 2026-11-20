@@ -10,7 +10,7 @@ export function onRequest(body, ctx) {
   if (error) return ctx.reject(400, "cache-control: " + error)
   if (hasProviderPolicies(ctx.options)) return
   const options = settings(ctx)
-  if (options.mode === "passthrough") return
+  if (options.mode === "passthrough" || preservesEntirePercent(options)) return
   const state = begin(ctx, options)
   if (!supportsProtocol(ctx.protocol)) {
     state.warnings.push("unsupported-protocol")
@@ -37,7 +37,7 @@ export function onProvider(body, ctx) {
   const provider = ctx.provider || {}
   const override = scoped && Object.prototype.hasOwnProperty.call(ctx.options.providers, provider.id)
   const options = settings(ctx, override ? ctx.options.providers[provider.id] : ctx.options)
-  if (options.mode === "passthrough" || (scoped && (typeof provider.id !== "string" || !provider.id))) {
+  if (options.mode === "passthrough" || preservesEntirePercent(options) || (scoped && (typeof provider.id !== "string" || !provider.id))) {
     if (scoped) delete ctx.state.cacheControl
     return
   }
@@ -109,6 +109,7 @@ function settings(ctx, policy = ctx.options) {
       strategy: options.rotation?.strategy ?? "request",
       turns: options.rotation?.turns ?? 10,
       tokens: options.rotation?.tokens ?? 8000,
+      percent: options.rotation?.percent ?? 5,
       style: options.rotation?.style ?? "marker",
     },
   }
@@ -131,8 +132,9 @@ function optionsError(options, allowProviders = true) {
   if (options.rotation !== undefined) {
     const rotation = options.rotation
     if (!isObject(rotation)) return "rotation must be an object"
-    if (Object.keys(rotation).some((key) => !["strategy", "turns", "tokens", "style"].includes(key))) return "unknown rotation option"
-    if (rotation.strategy !== undefined && !["request", "turns", "tokens"].includes(rotation.strategy)) return "invalid rotation strategy"
+    if (Object.keys(rotation).some((key) => !["strategy", "turns", "tokens", "percent", "style"].includes(key))) return "unknown rotation option"
+    if (rotation.strategy !== undefined && !["request", "turns", "tokens", "percent"].includes(rotation.strategy)) return "invalid rotation strategy"
+    if (rotation.percent !== undefined && (!Number.isFinite(rotation.percent) || rotation.percent < 0 || rotation.percent > 100)) return "rotation percent must be between 0 and 100"
     if (rotation.style !== undefined && !["punctuation", "whitespace", "marker"].includes(rotation.style)) return "invalid rotation style"
     for (const [key, maximum] of [["turns", 1000000], ["tokens", 1000000000]]) {
       if (rotation[key] !== undefined && (!Number.isSafeInteger(rotation[key]) || rotation[key] < 1 || rotation[key] > maximum)) return "invalid rotation " + key
@@ -194,6 +196,16 @@ function transform(body, ctx, options) {
   const bedrock = family === "bedrock"
   const rotateKey = options.mode === "bust" && Object.prototype.hasOwnProperty.call(body, "prompt_cache_key")
   if (isThresholdPolicy(options)) {
+    if (state.rotation.strategy === "percent") {
+      if (state.percentTarget) {
+        const { owner, key, index } = state.percentTarget
+        const text = owner[key]
+        owner[key] = text.slice(0, index) + rotationInsertion(state) + text.slice(index)
+        state.percentTarget = null
+        state.salted = true
+      }
+      return body
+    }
     if (state.rotation.phase === "bust-tail") {
       perturbTail(body, family, state.rotation.boundaryTurn, state.marker, state.rotation.style)
       state.salted = true
@@ -244,6 +256,10 @@ function isThresholdPolicy(options) {
   return options.mode === "bust" && options.rotation.strategy !== "request"
 }
 
+function preservesEntirePercent(options) {
+  return options.mode === "bust" && options.rotation.strategy === "percent" && options.rotation.percent === 100
+}
+
 function prepareRotation(body, ctx, options) {
   const state = ctx.state.cacheControl
   if (!isThresholdPolicy(options)) return
@@ -251,6 +267,7 @@ function prepareRotation(body, ctx, options) {
   if (body.previous_response_id || body.conversation || body.cachedContent || body.cached_content || (Array.isArray(body.context) && body.context.length)) {
     return "threshold policies require full visible history; expand server-side conversation and cache references first"
   }
+  if (options.rotation.strategy === "percent") return preparePercent(body, family, state, options.rotation.percent)
   if (state.rotationPrepared) {
     if (state.rotation.phase === "bust-tail" && !canPerturbTail(body, family, state.rotation.boundaryTurn, options.rotation.style)) return "the first uncached user turn is unavailable or cannot be edited safely; whitespace requires an existing nonempty first text block"
     return
@@ -285,6 +302,80 @@ function prepareRotation(body, ctx, options) {
   if (boundaryTurn !== null && !canPerturbTail(body, family, boundaryTurn, options.rotation.style)) return "the first uncached user turn cannot be edited safely; whitespace requires an existing nonempty first text block"
   state.rotation = { strategy, threshold, style: options.rotation.style, phase: boundaryTurn === null ? "allow-cache" : "bust-tail", turns, estimatedTokens, boundaryTurn }
   state.rotationPrepared = true
+}
+
+function rotationInsertion(state) {
+  return "\n" + state.marker + "\n"
+}
+
+function preparePercent(body, family, state, percent) {
+  state.percentTarget = null
+  if (family === "ollama-generate" && (body.raw === true || body.template)) return "percentage rotation requires the standard Ollama prompt template"
+  const history = family === "gemini" ? body.contents : family === "responses" ? body.input : body.messages
+  if (Array.isArray(history) && history.some((message) => message?.type === "item_reference")) return "percentage rotation requires full visible message history"
+  const fields = []
+  const add = (owner, key, editable = true) => {
+    const text = owner?.[key]
+    if (typeof text === "string" && text.length) fields.push({ owner, key, text, editable: editable && text.trim().length > 0 })
+  }
+  const addContent = (owner, key) => {
+    const content = owner?.[key]
+    if (!Array.isArray(content)) {
+      add(owner, key)
+      return
+    }
+    for (const block of content) {
+      if (!isObject(block)) continue
+      const plain = block.type === undefined || block.type === "text" || block.type === "input_text" || block.type === "output_text"
+      const unsigned = !block.signature && !block.thoughtSignature && !block.thought_signature && !block.thought && !block.annotations?.length
+      add(block, "text", plain && unsigned)
+      add(block, "thinking", false)
+    }
+  }
+  if (family === "gemini") {
+    const system = body.systemInstruction ?? body.system_instruction
+    addContent(system, "parts")
+  } else if (family === "responses") add(body, "instructions")
+  else addContent(body, "system")
+  if (Array.isArray(history)) {
+    for (const message of history) {
+      if (!isObject(message)) continue
+      if (family === "gemini") addContent(message, "parts")
+      else addContent(message, "content")
+    }
+  } else if (family === "responses") add(body, "input")
+  else if (family === "ollama-generate") add(body, "prompt")
+
+  if (fields.some(({ text }) => text.includes(rotationInsertion(state)))) {
+    state.salted = true
+    return
+  }
+  let total = 0
+  for (const field of fields) {
+    field.weight = 0
+    for (const character of field.text) field.weight += character.codePointAt(0) <= 127 ? 1 : 4
+    total += field.weight
+  }
+  const cutoff = Math.ceil(total * percent / 100)
+  let offset = 0
+  for (const field of fields) {
+    if (field.editable && offset + field.weight > cutoff) {
+      let index = 0
+      let position = offset
+      for (const character of field.text) {
+        if (position >= cutoff) break
+        position += character.codePointAt(0) <= 127 ? 1 : 4
+        index += character.length
+      }
+      if (index < field.text.length) {
+        state.percentTarget = { owner: field.owner, key: field.key, index }
+        state.rotation = { ...state.rotation, percent, phase: "bust-tail", estimatedTextUnits: total, prefixTextUnits: position }
+        return
+      }
+    }
+    offset += field.weight
+  }
+  return "percentage rotation found no editable text at or after the cutoff"
 }
 
 function boundaryMessage(body, family, boundaryTurn) {

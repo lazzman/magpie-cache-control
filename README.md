@@ -44,9 +44,10 @@ magpie plugin options magpie-middleware-cache-control $cacheOptions
 | log | false | 启用控制后，可单独打开以记录措施和可观察到的缓存 token 数 |
 | cachedContent | reject | Gemini 显式缓存引用的处理：reject 或 drop |
 | openaiExplicitProviders | [] | 明确支持新版 Responses 显式缓存模式的供应商 id 列表；默认不注入专有字段 |
-| rotation.strategy | request | bust 的干预起点：立即 request、前 N 轮后 turns、前 N 估算 Token 后 tokens |
+| rotation.strategy | request | bust 的干预起点，可选 request（立即）、turns（轮数）、tokens（估算 Token）或 percent（输入比例） |
 | rotation.turns | 10 | 允许缓存的前 N 个用户轮次，1 到 1000000 的整数 |
 | rotation.tokens | 8000 | 允许缓存的估算历史 Token 上限，1 到 1000000000 的整数 |
+| rotation.percent | 5 | 使用 percent 策略时保留的输入前缀比例，支持 0 到 100 及小数 |
 | rotation.style | marker | 文本扰动形式：marker、punctuation、whitespace；旧配置保留原标记行为 |
 | providers | {} | 按 Magpie 供应商 id 保存的独立策略；初始为空，未配置的供应商使用默认策略 |
 
@@ -119,6 +120,21 @@ Magpie 的 onProvider 无法拒绝请求。若此阶段遇到隐藏历史、无�
 ```
 
 第 1–10 轮仍完全不改，第 11 轮开始在第 11 轮消息开头加入每请求不同的标点文本。空白样式对已有首个文本块做前缀合并；完整标记与标点在多段内容中使用对应协议的文本块。所有样式在同一请求的 provider 重试中都保持一致，日志只记录样式名称，不包含实际扰动字符串。立即策略若需要改写已有 prompt_cache_key，仍使用长度受限的 ASCII 元数据标记，不把可能较长的空白/标点串写进缓存键。
+
+### 按比例保留输入前缀
+
+在「按策略扰动缓存」中选择「按比例保留输入前缀」。例如配置为 5%，插件会在每次请求约 5% 的位置插入新标记。可为各供应商分别配置。
+
+```json
+{
+  "mode": "bust",
+  "rotation": { "strategy": "percent", "percent": 5, "style": "marker" }
+}
+```
+
+比例根据每次请求中可见的系统提示词和消息文本重新估算，按 ASCII 字符权重 1、其他 Unicode 码点权重 4 计数。插件在算出的字符边界插入标记，跳过签名、带注释及其他不可编辑块。工具定义、媒体和供应商隐藏上下文不计入估算。请求总长度变化时，插入位置也可能移动。实际缓存命中率取决于供应商的分词、缓存粒度和前缀匹配。
+
+0% 从首个可编辑文本开始，100% 原样转发。请求包含隐藏历史引用，或落点之后没有可编辑文本时，沿用阈值策略的拒绝或供应商阶段跳过行为。缓存键和显式断点保留。
 
 ### 前 N 轮允许缓存，之后每个请求都扰动
 

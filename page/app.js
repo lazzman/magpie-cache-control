@@ -5,11 +5,14 @@ const LABELS = {
     providerScopeLabel: "配置范围", scopeDefault: "默认策略（未单独配置的供应商）", scopeInherited: "此供应商尚无单独配置，当前继承默认策略。编辑并保存后将使用独立策略。", scopeIndependent: "此供应商使用独立策略；其他供应商不受此处修改影响。", scopeDefaultNotice: "默认关闭；未单独配置的供应商使用这里的默认策略。已有手动保存的默认策略会保留。", providerReload: "刷新供应商列表", providerReset: "移除单独配置", providerListLoading: "正在读取 Magpie 供应商…", providerListError: "无法读取供应商列表，可重试；默认策略和已有供应商配置仍可编辑。", unsaved: "有未保存修改",
     providerStageHint: "单独策略在路由后执行。Magpie 在此阶段不能拒绝请求；无法安全应用时将原样发送并记录 provider-skipped 警告，请在日志中确认策略是否实际应用。",
     eyebrow: "网关策略", title: "提示词缓存控制", modeTitle: "请求策略", modeIntro: "选择如何处理各供应商请求中的提示词缓存。",
-    bustTitle: "按策略扰动缓存", bustDescription: "立即逐请求扰动，或先允许前 N 轮 / 估算 Token 缓存，超过后逐请求扰动后续消息。",
+    bustTitle: "按策略扰动缓存", bustDescription: "立即扰动，或按轮数、估算 Token 数、输入比例保留可缓存前缀。",
     rotationStrategyLabel: "开始逐请求扰动的时机", rotationRequestOption: "立即：每次请求", rotationTurnsOption: "前 N 轮允许缓存，之后每次请求扰动", rotationTokensOption: "前 N 估算 Token 允许缓存，超过后每次请求扰动",
     rotationTurnsLabel: "允许缓存的前多少个用户轮次", rotationTokensLabel: "允许缓存的估算历史 Token 上限",
     rotationNotice: "阈值内原样保留；超过后，每次请求都在固定的后续消息起点加入新标记，早期缓存前缀不变。不是每 N 轮循环一次。需要完整历史；显式缓存与原缓存键保留，OpenAI explicit-only 专项暂停。",
     rotationTokenHint: "Token 是估算值，并按首次越过阈值的整个用户轮处理；该轮中阈值前的部分文本也可能不再命中缓存。",
+    rotationPercentOption: "按比例保留输入前缀", rotationPercentLabel: "保留输入前缀（%）",
+    rotationPercentHint: "按本次请求的可见文本估算位置。设为 5%，保留约前 5% 后插入本次标记。0% 从首个可编辑文本开始，100% 原样转发。",
+    invalidPercent: "请输入 0 到 100 之间的百分比",
     rotationStyleLabel: "文本扰动形式", rotationMarkerOption: "完整随机标记（默认，模型可见）", rotationPunctuationOption: "随机标点串（模型可见）", rotationWhitespaceOption: "空格 / Tab（实验，可能被清理）",
     rotationStyleHint: "所有样式都进入模型上下文，不保证无语义影响或零命中。空白不保证节省 Token；需要现有非空、未签名的首个文本块，否则报错而不创建纯空白块。文本扰动模式不会额外开启 OpenAI 专有关闭参数。", invalidStyle: "请选择有效的文本扰动形式",
     invalidRotation: "请选择有效的轮换节奏", invalidTurns: "用户轮数必须为 1 到 1000000 的整数", invalidTokens: "估算 Token 阈值必须为 1 到 1000000000 的整数",
@@ -34,11 +37,14 @@ const LABELS = {
     providerScopeLabel: "Policy scope", scopeDefault: "Default policy (unconfigured providers)", scopeInherited: "No separate policy yet. This provider inherits the default; editing and saving creates an independent policy.", scopeIndependent: "This provider has an independent policy. Changes here do not affect other providers.", scopeDefaultNotice: "Off by default. Unconfigured providers use this policy. Previously saved default settings are preserved.", providerReload: "Refresh providers", providerReset: "Remove separate policy", providerListLoading: "Loading Magpie providers…", providerListError: "Could not load providers; retry. Default and existing provider policies can still be edited.", unsaved: "Unsaved changes",
     providerStageHint: "Separate policies run after routing, when Magpie cannot reject the request. If a policy cannot be safely applied, the request is forwarded unchanged and a provider-skipped warning is logged. Check logs to confirm application.",
     eyebrow: "Gateway policy", title: "Prompt cache control", modeTitle: "Request policy", modeIntro: "Choose how prompt caching is handled across provider requests.",
-    bustTitle: "Perturb cache by policy", bustDescription: "Perturb every request immediately, or allow the first N turns / estimated tokens to cache and perturb the later history on every subsequent request.",
+    bustTitle: "Perturb cache by policy", bustDescription: "Perturb immediately, or preserve a cacheable prefix by turns, estimated tokens, or input percentage.",
     rotationStrategyLabel: "When to start per-request perturbation", rotationRequestOption: "Immediately: every request", rotationTurnsOption: "Cache the first N turns; then perturb every request", rotationTokensOption: "Cache up to N estimated tokens; then perturb every request",
     rotationTurnsLabel: "Initial user turns allowed to cache", rotationTokensLabel: "Initial estimated history-token allowance",
     rotationNotice: "Within the allowance requests remain unchanged. Beyond it, every request gets a fresh marker at the same later-history boundary, preserving the early prefix. This does not repeat every N turns. Full history is required. Existing cache controls and cache keys are preserved; the OpenAI explicit-only override is paused.",
     rotationTokenHint: "Token counts are estimates. Perturbation starts at the user turn that first crosses the limit, so some earlier text in that turn may also stop hitting cache.",
+    rotationPercentOption: "Preserve a percentage of the input prefix", rotationPercentLabel: "Input prefix to preserve (%)",
+    rotationPercentHint: "The cutoff is estimated from visible request text. At 5%, a fresh marker goes after about the first 5%. At 0%, it goes at the first editable text. At 100%, the request passes through unchanged.",
+    invalidPercent: "Enter a percentage between 0 and 100",
     rotationStyleLabel: "Text perturbation style", rotationMarkerOption: "Full random marker (default, model-visible)", rotationPunctuationOption: "Random punctuation (model-visible)", rotationWhitespaceOption: "Spaces / tabs (experimental, may be stripped)",
     rotationStyleHint: "All styles enter model context; no promise of unchanged meaning or zero hits. Whitespace may not save tokens and needs an existing nonempty unsigned first text block; otherwise the request is rejected rather than creating a whitespace-only block. Text mode does not activate the OpenAI-specific override.", invalidStyle: "Choose a valid text perturbation style",
     invalidRotation: "Choose a valid rotation schedule", invalidTurns: "User turns must be an integer from 1 to 1000000", invalidTokens: "Estimated tokens must be an integer from 1 to 1000000000",
@@ -74,6 +80,7 @@ const logEnabled = $("logEnabled")
 const rotationStrategy = $("rotationStrategy")
 const rotationTurns = $("rotationTurns")
 const rotationTokens = $("rotationTokens")
+const rotationPercent = $("rotationPercent")
 const rotationStyle = $("rotationStyle")
 const providerScope = $("providerScope")
 const providerReload = $("providerReload")
@@ -129,9 +136,10 @@ function render(options) {
   providerIds.value = current.openaiExplicitProviders.join(", ")
   openaiEnabled.checked = current.openaiExplicitProviders.length > 0
   logEnabled.checked = current.log === true
-  rotationStrategy.value = ["turns", "tokens"].includes(current.rotation.strategy) ? current.rotation.strategy : "request"
+  rotationStrategy.value = ["turns", "tokens", "percent"].includes(current.rotation.strategy) ? current.rotation.strategy : "request"
   rotationTurns.value = current.rotation.turns
   rotationTokens.value = current.rotation.tokens
+  rotationPercent.value = current.rotation.percent ?? 5
   rotationStyle.value = ["marker", "punctuation", "whitespace"].includes(current.rotation.style) ? current.rotation.style : "marker"
   saveButton.disabled = !dirty
   updateControls()
@@ -168,7 +176,7 @@ function captureForm() {
     mode: document.querySelector('input[name="mode"]:checked')?.value,
     cachedContent: cachedContent.value, providerIds: providerIds.value, openaiEnabled: openaiEnabled.checked,
     log: logEnabled.checked, strategy: rotationStrategy.value, turns: rotationTurns.value,
-    tokens: rotationTokens.value, style: rotationStyle.value,
+    tokens: rotationTokens.value, percent: rotationPercent.value, style: rotationStyle.value,
   }
 }
 
@@ -182,6 +190,7 @@ function restoreDraft(draft) {
   rotationStrategy.value = draft.strategy
   rotationTurns.value = draft.turns
   rotationTokens.value = draft.tokens
+  rotationPercent.value = draft.percent
   rotationStyle.value = draft.style
   saveButton.disabled = !dirty
   updateControls()
@@ -212,10 +221,11 @@ function updateControls() {
   $("dropNotice").hidden = cachedContent.value !== "drop"
   const passthrough = document.querySelector('input[name="mode"]:checked')?.value === "passthrough"
   const bust = document.querySelector('input[name="mode"]:checked')?.value === "bust"
-  const scheduled = bust && rotationStrategy.value !== "request"
+  const scheduled = bust && ["turns", "tokens"].includes(rotationStrategy.value)
   $("rotationFields").hidden = !bust
   $("rotationTurnsField").hidden = rotationStrategy.value !== "turns"
   $("rotationTokensField").hidden = rotationStrategy.value !== "tokens"
+  $("rotationPercentField").hidden = rotationStrategy.value !== "percent"
   $("rotationNotice").hidden = !scheduled
   $("rotationTokenHint").hidden = !bust || rotationStrategy.value !== "tokens"
   for (const control of [cachedContent, logEnabled]) control.disabled = passthrough
@@ -223,6 +233,7 @@ function updateControls() {
   rotationStrategy.disabled = !bust
   rotationTurns.disabled = !bust || rotationStrategy.value !== "turns"
   rotationTokens.disabled = !bust || rotationStrategy.value !== "tokens"
+  rotationPercent.disabled = !bust || rotationStrategy.value !== "percent"
   rotationStyle.disabled = !bust
 }
 
@@ -231,18 +242,21 @@ function collect(draft = captureForm()) {
   if (!["bust", "disable-explicit", "passthrough"].includes(mode)) throw new Error("invalidMode")
   if (!["reject", "drop"].includes(draft.cachedContent)) throw new Error("invalidCachedContent")
   const strategy = draft.strategy
-  if (!["request", "turns", "tokens"].includes(strategy)) throw new Error("invalidRotation")
+  if (!["request", "turns", "tokens", "percent"].includes(strategy)) throw new Error("invalidRotation")
   const style = draft.style
   if (!["marker", "punctuation", "whitespace"].includes(style)) throw new Error("invalidStyle")
   const validTurns = Number.isSafeInteger(Number(draft.turns)) && Number(draft.turns) >= 1 && Number(draft.turns) <= 1000000
   const validTokens = Number.isSafeInteger(Number(draft.tokens)) && Number(draft.tokens) >= 1 && Number(draft.tokens) <= 1000000000
   if (mode === "bust" && strategy === "turns" && !validTurns) throw new Error("invalidTurns")
   if (mode === "bust" && strategy === "tokens" && !validTokens) throw new Error("invalidTokens")
+  const percent = Number(draft.percent)
+  const validPercent = String(draft.percent).trim() !== "" && Number.isFinite(percent) && percent >= 0 && percent <= 100
+  if (mode === "bust" && strategy === "percent" && !validPercent) throw new Error("invalidPercent")
   const ids = draft.openaiEnabled ? [...new Set(draft.providerIds.split(/[\s,]+/).filter(Boolean))] : []
   if (draft.openaiEnabled && (!ids.length || ids.some((id) => !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/.test(id)))) throw new Error("invalidProvider")
   return {
     mode, log: draft.log, cachedContent: draft.cachedContent, openaiExplicitProviders: ids,
-    rotation: { strategy, turns: validTurns ? Number(draft.turns) : 10, tokens: validTokens ? Number(draft.tokens) : 8000, style },
+    rotation: { strategy, turns: validTurns ? Number(draft.turns) : 10, tokens: validTokens ? Number(draft.tokens) : 8000, style, ...(strategy === "percent" || (validPercent && percent !== 5) ? { percent: validPercent ? percent : 5 } : {}) },
   }
 }
 

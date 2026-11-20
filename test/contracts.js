@@ -1160,5 +1160,58 @@ export function contractCases(plugin) {
     })
   }
 
+  add("Five percent preserves the initial text and uses a fresh marker for each request", () => {
+    const markers = new Set()
+    const system = "s".repeat(100)
+    const input = "u".repeat(100)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const ctx = context("responses", { rotation: { strategy: "percent", percent: 5 } })
+      const original = { instructions: system, input, prompt_cache_key: "keep", prompt_cache_options: { mode: "explicit" } }
+      const body = plugin.onRequest(copy(original), ctx)
+      const marker = markerOf(ctx)
+      markers.add(marker)
+      equal(body, { ...original, instructions: system.slice(0, 10) + "\n" + marker + "\n" + system.slice(10) })
+      equal(ctx.state.cacheControl.rotation.prefixTextUnits, 10)
+      equal(plugin.onProvider(copy(body), ctx), body)
+      equal(plugin.onProvider(copy(original), ctx), body)
+    }
+    equal(markers.size, 3)
+  })
+
+  add("Percentage cutoff respects Unicode and leaves signed Gemini blocks intact", () => {
+    const ctx = context("gemini", { rotation: { strategy: "percent", percent: 10, style: "whitespace" } })
+    const signed = { text: "signed", thoughtSignature: "keep" }
+    const original = { contents: [{ role: "user", parts: [signed, { text: "😀abcdef" }, { inlineData: { data: "keep" } }] }] }
+    const body = plugin.onRequest(copy(original), ctx)
+    const marker = ctx.state.cacheControl.marker
+    equal(body.contents[0].parts, [signed, { text: "\n" + marker + "\n😀abcdef" }, original.contents[0].parts[2]])
+    equal(plugin.onProvider(body, ctx), body)
+    const unicodeCtx = context("responses", { rotation: { strategy: "percent", percent: 5 } })
+    const unicode = plugin.onRequest({ input: "😀abcd" }, unicodeCtx)
+    equal(unicode.input, "😀\n" + markerOf(unicodeCtx) + "\nabcd")
+  })
+
+  add("A percentage applies only to the selected provider and keeps the 0 and 100 endpoints distinct", () => {
+    const ctx = context("chat", { mode: "passthrough", providers: { alpha: { mode: "bust", rotation: { strategy: "percent", percent: 0 } }, beta: { mode: "bust", rotation: { strategy: "percent", percent: 100 } } } })
+    const original = { messages: [{ role: "user", content: "question" }] }
+    ensure(plugin.onRequest(copy(original), ctx) === undefined)
+    ctx.provider = { id: "alpha" }
+    const body = plugin.onProvider(copy(original), ctx)
+    equal(body.messages[0].content, "\n" + markerOf(ctx) + "\nquestion")
+    ctx.provider = { id: "beta" }
+    ensure(plugin.onProvider(copy(original), ctx) === undefined)
+    ensure(plugin.onProvider({ ...original, previous_response_id: "hidden" }, ctx) === undefined)
+  })
+
+  add("Percentage rotation rejects hidden history and invalid percentages before mutation", () => {
+    const body = { input: "question", previous_response_id: "hidden" }
+    for (const [percent, status] of [[5, 409], [-1, 400], [101, 400], ["5", 400]]) {
+      const ctx = context("responses", { rotation: { strategy: "percent", percent } })
+      plugin.onRequest(body, ctx)
+      equal(ctx.rejected.status, status)
+      equal(body, { input: "question", previous_response_id: "hidden" })
+    }
+  })
+
   return cases
 }
