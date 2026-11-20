@@ -10,19 +10,20 @@
 </head>
 <body>
   <main>
-    <header>
-      <div><span class="eyebrow" id="eyebrow">网关策略</span><h1 id="title">提示词缓存控制</h1></div>
-      <span class="status" id="status" role="status" aria-live="polite"></span>
+    <header class="page-header">
+      <h1 id="title">提示词缓存控制</h1>
+      <p class="intro" id="pageIntro">按供应商选择缓存策略，保留你需要的输入前缀。</p>
     </header>
-    <section aria-labelledby="providerScopeLabel">
-      <label class="field"><span id="providerScopeLabel">配置范围</span><select id="providerScope" disabled><option value="">默认策略（未单独配置的供应商）</option></select></label>
+    <section class="scope-section" aria-labelledby="providerScopeLabel">
+      <div class="scope-heading"><label for="providerScope" id="providerScopeLabel">配置范围</label><span class="scope-state" id="scopeState"></span></div>
+      <div class="scope-controls"><select id="providerScope" disabled><option value="">默认策略（未单独配置的供应商）</option></select><button type="button" class="secondary" id="providerReload">刷新供应商列表</button></div>
       <p class="intro" id="scopeNotice">默认关闭；未单独配置的供应商使用默认策略。</p>
       <p class="notice" id="providerStageHint" hidden>单独策略在路由后执行。Magpie 在此阶段不能拒绝请求；无法安全应用时将原样发送并记录 provider-skipped 警告，请在日志中确认策略是否实际应用。</p>
-      <div class="provider-actions"><button type="button" id="providerReload">刷新供应商列表</button><button type="button" id="providerReset" disabled>移除单独配置</button></div>
+      <button type="button" class="text-button" id="providerReset" disabled hidden>移除单独配置</button>
       <p class="hint" id="providerListStatus" role="status" aria-live="polite"></p>
     </section>
     <fieldset id="settings" disabled>
-      <section aria-labelledby="modeTitle">
+      <section class="policy-section" aria-labelledby="modeTitle">
         <h2 id="modeTitle">请求策略</h2>
         <p class="intro" id="modeIntro">选择如何处理各供应商请求中的提示词缓存。</p>
         <div class="mode-list" role="radiogroup" aria-labelledby="modeTitle">
@@ -32,17 +33,26 @@
         </div>
         <div id="rotationFields" hidden>
           <label class="field"><span id="rotationStrategyLabel">开始逐请求扰动的时机</span><select id="rotationStrategy"><option value="request" id="rotationRequestOption">立即：每次请求</option><option value="turns" id="rotationTurnsOption">前 N 轮允许缓存，之后每次请求扰动</option><option value="tokens" id="rotationTokensOption">前 N 估算 Token 允许缓存，超过后每次请求扰动</option><option value="percent" id="rotationPercentOption">按比例保留输入前缀</option></select></label>
-          <label class="field" id="rotationTurnsField" hidden><span id="rotationTurnsLabel">允许缓存的前多少个用户轮次</span><input type="number" id="rotationTurns" min="1" max="1000000" step="1" inputmode="numeric" aria-describedby="rotationNotice"></label>
-          <label class="field" id="rotationTokensField" hidden><span id="rotationTokensLabel">允许缓存的估算历史 Token 上限</span><input type="number" id="rotationTokens" min="1" max="1000000000" step="1" inputmode="numeric" aria-describedby="rotationNotice rotationTokenHint"></label>
-          <label class="field" id="rotationPercentField" hidden><span id="rotationPercentLabel">保留输入前缀（%）</span><input type="number" id="rotationPercent" min="0" max="100" step="any" inputmode="decimal" aria-describedby="rotationPercentHint"><span class="hint" id="rotationPercentHint">按本次请求的可见文本估算位置。设为 5%，保留约前 5% 后插入本次标记。0% 从首个可编辑文本开始，100% 原样转发。</span></label>
+          <label class="field" id="rotationTurnsField" hidden><span id="rotationTurnsLabel">允许缓存的前多少个用户轮次</span><input type="number" id="rotationTurns" min="1" max="1000000" step="1" inputmode="numeric" aria-labelledby="rotationTurnsLabel" aria-describedby="rotationNotice"></label>
+          <label class="field" id="rotationTokensField" hidden><span id="rotationTokensLabel">允许缓存的估算历史 Token 上限</span><input type="number" id="rotationTokens" min="1" max="1000000000" step="1" inputmode="numeric" aria-labelledby="rotationTokensLabel" aria-describedby="rotationNotice rotationTokenHint"></label>
+          <label class="field" id="rotationPercentField" hidden><span id="rotationPercentLabel">保留输入前缀（%）</span><input type="number" id="rotationPercent" min="0" max="100" step="any" inputmode="decimal" aria-labelledby="rotationPercentLabel" aria-describedby="rotationPercentHint"><span class="hint" id="rotationPercentHint">按本次请求的可见文本估算位置。设为 5%，保留约前 5% 后插入本次标记。0% 从首个可编辑文本开始，100% 原样转发。</span></label>
+          <div class="policy-preview" id="policyPreview" aria-labelledby="previewTitle" hidden>
+            <h3 id="previewTitle">策略预览</h3>
+            <p id="previewSummary"></p>
+            <div id="percentPreview" hidden aria-hidden="true"><div class="prefix-track"><span id="prefixSegment"></span></div><div class="preview-legend"><span id="prefixLegend"></span><span id="tailLegend"></span></div></div>
+            <p class="hint" id="previewHint"></p>
+          </div>
           <p class="notice" id="rotationNotice" hidden>阈值内原样保留；超过后，每次请求都在固定的后续消息起点加入新标记，早期缓存前缀不变。不是每 N 轮循环一次。需要完整历史；显式缓存与原缓存键保留，OpenAI explicit-only 专项暂停。</p>
           <p class="hint" id="rotationTokenHint" hidden>Token 是估算值，并按首次越过阈值的整个用户轮处理；该轮中阈值前的部分文本也可能不再命中缓存。</p>
           <label class="field"><span id="rotationStyleLabel">文本扰动形式</span><select id="rotationStyle"><option value="marker" id="rotationMarkerOption">完整随机标记（默认，模型可见）</option><option value="punctuation" id="rotationPunctuationOption">随机标点串（模型可见）</option><option value="whitespace" id="rotationWhitespaceOption">空格 / Tab（实验，可能被清理）</option></select></label>
-          <p class="hint" id="rotationStyleHint">所有样式都进入模型上下文，不保证无语义影响或零命中。空白不保证节省 Token；需要现有非空、未签名的首个文本块，否则报错而不创建纯空白块。文本扰动模式不会额外开启 OpenAI 专有关闭参数。</p>
+          <p class="hint" id="styleVisibility">扰动文本会进入模型上下文，可能影响模型理解。</p>
+          <details class="protocols"><summary id="rotationHelpTitle">扰动形式的限制</summary><p class="hint" id="rotationStyleHint">所有样式都进入模型上下文，不保证无语义影响或零命中。空白不保证节省 Token；需要现有非空、未签名的首个文本块，否则报错而不创建纯空白块。文本扰动模式不会额外开启 OpenAI 专有关闭参数。</p></details>
         </div>
         <details class="protocols"><summary id="protocolsTitle">协议适配范围</summary><p class="intro" id="protocolsNative">Magpie 当前协议：Anthropic Messages、Chat Completions、Responses、Gemini；兼容接口使用 Chat 适配。</p><p class="intro" id="protocolsExtended">扩展格式：Bedrock Converse、Cohere v2、Ollama Chat / Generate、Vertex Gemini。需要宿主传入对应原生协议；本插件不会创建新网关路由。</p></details>
       </section>
-      <section aria-labelledby="geminiTitle">
+      <details class="advanced" id="advancedSettings">
+        <summary><span id="advancedTitle">协议专项设置</span><span class="hint" id="advancedHint">Gemini 缓存引用与 Responses 显式模式</span></summary>
+        <section aria-labelledby="geminiTitle">
         <h2 id="geminiTitle">Gemini 缓存引用</h2>
         <p class="intro" id="geminiIntro">引用可能代替整段上下文；网关无法自动取回其内容。</p>
         <label class="field"><span id="cachedContentLabel">遇到缓存引用时</span><select id="cachedContent"><option value="reject" id="rejectOption">拒绝请求并保留上下文</option><option value="drop" id="dropOption">确认上下文已展开后删除引用</option></select></label>
@@ -52,14 +62,17 @@
         <h2 id="openaiTitle">OpenAI Responses 专项</h2>
         <p class="intro" id="openaiIntro">仅用于“只关闭显式缓存”模式且供应商已确认支持；文本扰动模式会暂停此专项。旧模型和兼容接口可能不支持。</p>
         <label class="check-row"><input type="checkbox" id="openaiExplicitEnabled"><span id="openaiToggle">给指定供应商使用 explicit 缓存模式</span></label>
-        <label class="field" id="providerIdsField" hidden><span id="providerIdsLabel">Magpie 供应商 ID</span><textarea id="providerIds" rows="2" spellcheck="false" placeholder="native-openai, openai-responses" aria-describedby="providerIdsHint"></textarea><span class="hint" id="providerIdsHint">填写精确的 provider.id，用逗号或换行分隔。仅对 Responses 请求生效。</span></label>
+        <label class="field" id="providerIdsField" hidden><span id="providerIdsLabel">Magpie 供应商 ID</span><textarea id="providerIds" rows="2" spellcheck="false" placeholder="native-openai, openai-responses" aria-labelledby="providerIdsLabel" aria-describedby="providerIdsHint"></textarea><span class="hint" id="providerIdsHint">填写精确的 provider.id，用逗号或换行分隔。仅对 Responses 请求生效。</span></label>
       </section>
+      </details>
       <section aria-labelledby="diagnosticsTitle">
         <h2 id="diagnosticsTitle">诊断</h2>
         <p class="intro" id="diagnosticsIntro">日志记录所采取的措施及缓存 token 数，不包含提示词。缺少统计不等于零命中。</p>
         <label class="check-row"><input type="checkbox" id="logEnabled"><span id="logToggle">在 Magpie 日志中记录措施和可用的缓存统计</span></label>
       </section>
-      <footer><p class="footer-copy" id="footerCopy">随机标记不能保证零缓存命中，也可能增加费用和延迟。保存后从下一次请求生效。</p><button type="button" id="saveButton">保存设置</button></footer>
+      <p class="field-error" id="fieldError" role="alert" hidden></p>
+      <p class="footer-copy" id="footerCopy">随机标记不能保证零缓存命中，也可能增加费用和延迟。保存后从下一次请求生效。</p>
+      <footer><div class="save-state"><span class="status" id="status" role="status" aria-live="polite"></span><span class="hint" id="saveScopeHint" hidden>保存所有配置范围的修改</span></div><button type="button" id="saveButton">保存设置</button></footer>
     </fieldset>
     <button type="button" id="retryButton" hidden>重新读取设置</button>
   </main>

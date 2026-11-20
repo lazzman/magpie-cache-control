@@ -14,6 +14,8 @@ class Element {
     this.disabled = false
     this.textContent = ""
     this.dataset = {}
+    this.style = {}
+    this.attributes = {}
     this.listeners = new Map()
     this.children = []
   }
@@ -29,6 +31,11 @@ class Element {
   replaceChildren(...children) {
     this.children = children
   }
+
+  setAttribute(name, value) { this.attributes[name] = value }
+  removeAttribute(name) { delete this.attributes[name] }
+  focus() { this.focused = true }
+  insertAdjacentElement(position, element) { this.adjacent = element }
 }
 
 async function page({ options = { mode: "bust", log: true }, get, set, language = "zh", ready, providers = [{ id: "alpha", name: "Alpha" }, { id: "beta", name: "Beta" }], read } = {}) {
@@ -441,4 +448,66 @@ test("Switching language preserves the selected provider and its unsaved thresho
   assert.equal(view.element("rotationTurns").value, "6")
   await view.save()
   assert.equal(view.calls[0].providers.alpha.rotation.turns, 6)
+})
+
+test("Policy preview updates on typing and distinguishes estimated prefix from actual hits", async () => {
+  const view = await page({ options: {} })
+  assert.equal(view.element("policyPreview").hidden, true)
+  await view.mode("bust")
+  await view.change("rotationStrategy", "percent")
+  view.element("rotationPercent").value = "5.5"
+  await view.element("settings").emit("input")
+  assert.match(view.element("previewSummary").textContent, /5.5%/)
+  assert.equal(view.element("prefixSegment").style.width, "5.5%")
+  assert.match(view.element("tailLegend").textContent, /94.5%/)
+  assert.match(view.element("previewHint").textContent, /不是实际缓存命中率/)
+  assert.equal(view.element("status").dataset.state, "unsaved")
+  assert.equal(view.element("saveScopeHint").hidden, false)
+  view.theme({ lang: "en" })
+  assert.match(view.element("previewSummary").textContent, /5.5%/)
+  assert.match(view.element("previewHint").textContent, /not the actual cache hit rate/)
+  await view.change("rotationPercent", "100")
+  assert.match(view.element("previewSummary").textContent, /unchanged/)
+  await view.change("rotationPercent", "0")
+  assert.match(view.element("previewSummary").textContent, /first editable/)
+  await view.change("rotationPercent", "101")
+  assert.equal(view.element("percentPreview").hidden, true)
+  assert.equal(view.calls.length, 0)
+})
+
+test("Allowance preview keeps the fixed N+1 boundary and follows provider drafts", async () => {
+  const view = await page({ options: {} })
+  await view.scope("alpha")
+  assert.equal(view.element("scopeState").textContent, "继承默认")
+  assert.equal(view.element("providerReset").hidden, true)
+  await view.mode("bust")
+  await view.change("rotationStrategy", "turns")
+  await view.change("rotationTurns", "10")
+  assert.match(view.element("previewSummary").textContent, /前 10.*第 11 轮/)
+  assert.equal(view.element("scopeState").textContent, "独立策略")
+  await view.scope("beta")
+  assert.equal(view.element("policyPreview").hidden, true)
+  await view.scope("alpha")
+  assert.match(view.element("previewSummary").textContent, /第 11 轮/)
+  assert.equal(view.calls.length, 0)
+})
+
+test("Invalid advanced fields expand and focus the field; editing clears accessible errors", async () => {
+  const view = await page({ options: {} })
+  await view.mode("disable-explicit")
+  await view.change("openaiExplicitEnabled", true)
+  await view.change("providerIds", "bad id!")
+  await view.save()
+  assert.equal(view.element("advancedSettings").open, true)
+  assert.equal(view.element("providerIds").focused, true)
+  assert.equal(view.element("providerIds").attributes["aria-invalid"], "true")
+  assert.equal(view.element("fieldError").hidden, false)
+  assert.equal(view.element("providerIds").adjacent, view.element("fieldError"))
+  assert.equal(view.calls.length, 0)
+  await view.change("providerIds", "native")
+  assert.equal(view.element("fieldError").hidden, true)
+  assert.equal(view.element("providerIds").attributes["aria-invalid"], undefined)
+  await view.save()
+  assert.equal(view.element("saveScopeHint").hidden, true)
+  assert.equal(view.element("saveButton").dataset.busy, "false")
 })

@@ -2,6 +2,12 @@ const DEFAULTS = { mode: "passthrough", log: false, cachedContent: "reject", ope
 
 const LABELS = {
   zh: {
+    pageIntro: "按供应商选择缓存策略，保留你需要的输入前缀。", scopeRoot: "默认策略", scopeOwn: "独立策略", scopeParent: "继承默认", rotationHelpTitle: "扰动形式的限制", styleVisibility: "扰动文本会进入模型上下文，可能影响模型理解。",
+    advancedTitle: "协议专项设置", advancedHint: "Gemini 缓存引用与 Responses 显式模式", previewTitle: "策略预览",
+    previewRequest: "每次请求都使用新的文本扰动。", previewTurns: "前 {value} 个用户轮次保持不变，从第 {next} 轮开始逐请求扰动。", previewTokens: "保留前 {value} 个估算历史 Token，超过后逐请求扰动。", previewPercent: "保留约前 {value}% 的可见输入，在此之后插入新的扰动。",
+    previewFull: "100%：请求原样转发，不插入扰动。", previewZero: "0%：从首个可编辑文本开始扰动。",
+    previewEstimate: "这是文本权重估算，不是实际缓存命中率；落点在工具内容等不可编辑位置时，会顺延到后续可编辑文本。", previewBoundary: "保留早期可缓存前缀；后续每个新请求使用新扰动，同一次请求的供应商重试复用扰动。", previewImmediate: "文本会进入模型上下文；实际命中情况请对照供应商统计。",
+    prefixLegendText: "允许缓存 {value}%", tailLegendText: "逐请求扰动 {value}%", ready: "无未保存修改", saveScopeHint: "保存所有配置范围的修改",
     providerScopeLabel: "配置范围", scopeDefault: "默认策略（未单独配置的供应商）", scopeInherited: "此供应商尚无单独配置，当前继承默认策略。编辑并保存后将使用独立策略。", scopeIndependent: "此供应商使用独立策略；其他供应商不受此处修改影响。", scopeDefaultNotice: "默认关闭；未单独配置的供应商使用这里的默认策略。已有手动保存的默认策略会保留。", providerReload: "刷新供应商列表", providerReset: "移除单独配置", providerListLoading: "正在读取 Magpie 供应商…", providerListError: "无法读取供应商列表，可重试；默认策略和已有供应商配置仍可编辑。", unsaved: "有未保存修改",
     providerStageHint: "单独策略在路由后执行。Magpie 在此阶段不能拒绝请求；无法安全应用时将原样发送并记录 provider-skipped 警告，请在日志中确认策略是否实际应用。",
     eyebrow: "网关策略", title: "提示词缓存控制", modeTitle: "请求策略", modeIntro: "选择如何处理各供应商请求中的提示词缓存。",
@@ -34,6 +40,12 @@ const LABELS = {
     invalidCachedContent: "请选择有效的 Gemini 缓存策略", invalidProvider: "供应商 ID 必须是逗号或换行分隔的名称",
   },
   en: {
+    pageIntro: "Choose a policy for each provider and preserve the input prefix you need.", scopeRoot: "Default policy", scopeOwn: "Independent", scopeParent: "Inherited", rotationHelpTitle: "Perturbation limitations", styleVisibility: "Perturbation text enters model context and may affect interpretation.",
+    advancedTitle: "Protocol settings", advancedHint: "Gemini references and Responses explicit mode", previewTitle: "Policy preview",
+    previewRequest: "Every request receives a fresh text perturbation.", previewTurns: "Keep the first {value} user turns unchanged. Perturb every request from turn {next}.", previewTokens: "Allow the first {value} estimated history tokens to cache, then perturb every request.", previewPercent: "Preserve about the first {value}% of visible input, then insert a fresh perturbation.",
+    previewFull: "100%: pass the request through unchanged, without perturbation.", previewZero: "0%: perturb from the first editable text.",
+    previewEstimate: "This estimates text weight, not the actual cache hit rate. A cutoff inside tool data or other protected content advances to the next editable text.", previewBoundary: "Preserve the early cacheable prefix. Each new request gets a fresh perturbation; provider retries within that request reuse it.", previewImmediate: "Text enters model context. Check provider statistics for actual cache hits.",
+    prefixLegendText: "Cache allowed {value}%", tailLegendText: "Perturbed per request {value}%", ready: "No unsaved changes", saveScopeHint: "Save changes across all policy scopes",
     providerScopeLabel: "Policy scope", scopeDefault: "Default policy (unconfigured providers)", scopeInherited: "No separate policy yet. This provider inherits the default; editing and saving creates an independent policy.", scopeIndependent: "This provider has an independent policy. Changes here do not affect other providers.", scopeDefaultNotice: "Off by default. Unconfigured providers use this policy. Previously saved default settings are preserved.", providerReload: "Refresh providers", providerReset: "Remove separate policy", providerListLoading: "Loading Magpie providers…", providerListError: "Could not load providers; retry. Default and existing provider policies can still be edited.", unsaved: "Unsaved changes",
     providerStageHint: "Separate policies run after routing, when Magpie cannot reject the request. If a policy cannot be safely applied, the request is forwarded unchanged and a provider-skipped warning is logged. Check logs to confirm application.",
     eyebrow: "Gateway policy", title: "Prompt cache control", modeTitle: "Request policy", modeIntro: "Choose how prompt caching is handled across provider requests.",
@@ -93,6 +105,7 @@ let drafts = Object.create(null)
 let language = "zh"
 let saving = false
 let dirty = false
+let invalidField = null
 
 function translate(theme) {
   const locale = String(theme?.lang || navigator.language || "zh").toLowerCase()
@@ -107,11 +120,75 @@ function translate(theme) {
   const listStatus = $("providerListStatus")
   if (listStatus.dataset.state) listStatus.textContent = LABELS[language][listStatus.dataset.state] || ""
   showStatus(status.dataset.state || "")
+  renderPreview()
 }
 
 function showStatus(state = "") {
   status.dataset.state = state
-  status.textContent = state ? LABELS[language][state] || "" : ""
+  status.textContent = LABELS[language][state || "ready"] || ""
+  saveButton.textContent = LABELS[language][saving ? "saving" : "saveButton"]
+  saveButton.dataset.busy = String(saving)
+  $("saveScopeHint").hidden = !dirty
+  if (invalidField) $("fieldError").textContent = LABELS[language][state] || ""
+}
+
+function clearFieldError() {
+  if (invalidField) {
+    invalidField.removeAttribute("aria-invalid")
+    invalidField.removeAttribute("aria-errormessage")
+  }
+  invalidField = null
+  $("fieldError").hidden = true
+}
+
+function showFieldError(state) {
+  clearFieldError()
+  const fields = { invalidTurns: rotationTurns, invalidTokens: rotationTokens, invalidPercent: rotationPercent, invalidProvider: providerIds, invalidStyle: rotationStyle, invalidRotation: rotationStrategy, invalidCachedContent: cachedContent }
+  const field = fields[state]
+  if (!field) return
+  if (field === providerIds || field === cachedContent) $("advancedSettings").open = true
+  invalidField = field
+  field.setAttribute("aria-invalid", "true")
+  field.setAttribute("aria-errormessage", "fieldError")
+  field.insertAdjacentElement("afterend", $("fieldError"))
+  $("fieldError").textContent = LABELS[language][state]
+  $("fieldError").hidden = false
+  field.focus()
+}
+
+function renderPreview() {
+  const labels = LABELS[language]
+  const bust = document.querySelector('input[name="mode"]:checked')?.value === "bust"
+  $("policyPreview").hidden = !bust
+  $("percentPreview").hidden = true
+  if (!bust) return
+  const strategy = rotationStrategy.value
+  let summary = labels.previewRequest
+  let hint = labels.previewImmediate
+  if (strategy === "turns") {
+    const turns = Number(rotationTurns.value)
+    summary = Number.isSafeInteger(turns) && turns > 0 && turns <= 1000000
+      ? labels.previewTurns.replace("{value}", turns).replace("{next}", turns + 1) : labels.invalidTurns
+    hint = labels.previewBoundary
+  } else if (strategy === "tokens") {
+    const tokens = Number(rotationTokens.value)
+    summary = Number.isSafeInteger(tokens) && tokens > 0 && tokens <= 1000000000
+      ? labels.previewTokens.replace("{value}", tokens) : labels.invalidTokens
+    hint = labels.rotationTokenHint
+  } else if (strategy === "percent") {
+    const percent = Number(rotationPercent.value)
+    const valid = String(rotationPercent.value).trim() !== "" && Number.isFinite(percent) && percent >= 0 && percent <= 100
+    summary = !valid ? labels.invalidPercent : percent === 100 ? labels.previewFull : percent === 0 ? labels.previewZero : labels.previewPercent.replace("{value}", percent)
+    hint = labels.previewEstimate
+    if (valid) {
+      $("percentPreview").hidden = false
+      $("prefixSegment").style.width = percent + "%"
+      $("prefixLegend").textContent = labels.prefixLegendText.replace("{value}", percent)
+      $("tailLegend").textContent = labels.tailLegendText.replace("{value}", Number((100 - percent).toFixed(8)))
+    }
+  }
+  $("previewSummary").textContent = summary
+  $("previewHint").textContent = hint
 }
 
 function normalize(options) {
@@ -167,7 +244,9 @@ function renderProviderChoices() {
   providerScope.replaceChildren(...choices)
   providerScope.value = activeScope
   $("scopeNotice").textContent = !activeScope ? LABELS[language].scopeDefaultNotice : owns(providerPolicies, activeScope) || owns(drafts, activeScope) ? LABELS[language].scopeIndependent : LABELS[language].scopeInherited
+  $("scopeState").textContent = LABELS[language][!activeScope ? "scopeRoot" : owns(providerPolicies, activeScope) || owns(drafts, activeScope) ? "scopeOwn" : "scopeParent"]
   providerReset.disabled = saving || settings.disabled || !activeScope || (!owns(providerPolicies, activeScope) && !owns(drafts, activeScope))
+  providerReset.hidden = !activeScope || (!owns(providerPolicies, activeScope) && !owns(drafts, activeScope))
   $("providerStageHint").hidden = !activeScope && Object.keys(providerPolicies).length === 0 && !Object.keys(drafts).some((scope) => scope)
 }
 
@@ -197,6 +276,7 @@ function restoreDraft(draft) {
 }
 
 function showCurrentScope() {
+  clearFieldError()
   if (owns(drafts, activeScope)) restoreDraft(drafts[activeScope])
   else if (activeScope && !owns(providerPolicies, activeScope) && owns(drafts, "")) restoreDraft(drafts[""])
   else render(activeScope && owns(providerPolicies, activeScope) ? providerPolicies[activeScope] : defaultPolicy)
@@ -235,6 +315,7 @@ function updateControls() {
   rotationTokens.disabled = !bust || rotationStrategy.value !== "tokens"
   rotationPercent.disabled = !bust || rotationStrategy.value !== "percent"
   rotationStyle.disabled = !bust
+  renderPreview()
 }
 
 function collect(draft = captureForm()) {
@@ -274,11 +355,13 @@ function collectDocument() {
 
 function changed() {
   if (saving) return
+  clearFieldError()
+  updateControls()
   dirty = true
   drafts[activeScope] = captureForm()
   saveButton.disabled = false
   renderProviderChoices()
-  if (status.dataset.state === "saved") showStatus("")
+  showStatus("unsaved")
 }
 
 async function loadSettings() {
@@ -311,6 +394,7 @@ async function saveSettings() {
       showCurrentScope()
     }
     showStatus(LABELS[language][error.message] ? error.message : "saveError")
+    showFieldError(error.message)
     return
   }
   saving = true
@@ -331,6 +415,7 @@ async function saveSettings() {
     providerScope.disabled = false
     saveButton.disabled = !dirty
     renderProviderChoices()
+    showStatus(status.dataset.state)
   }
 }
 
@@ -371,7 +456,7 @@ providerReset.addEventListener("click", () => {
 })
 providerReload.addEventListener("click", loadProviders)
 settings.addEventListener("input", changed)
-settings.addEventListener("change", () => { updateControls(); changed() })
+settings.addEventListener("change", changed)
 saveButton.addEventListener("click", saveSettings)
 retryButton.addEventListener("click", loadSettings)
 
