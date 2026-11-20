@@ -3,14 +3,15 @@
   "version": "0.1.0",
   "description": "Cross-provider prompt cache controls for Magpie gateway middleware",
   "type": "module",
-  "files": ["cache-control.middleware.js", "README.md", "options.example.json", "page"],
+  "main": "./page-service.js",
+  "files": ["cache-control.middleware.js", "page-service.js", "lib", "README.md", "options.example.json", "page"],
   "keywords": ["magpie", "magpie-middleware", "prompt-caching"],
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "test:coverage": "node --test --experimental-test-coverage test/*.test.mjs",
     "test:moejs": "cd test/moejs && go test -count=1 -v ./...",
     "test:page": "node --test test/page.test.mjs",
-    "check": "node --check cache-control.middleware.js && node --check page/app.js"
+    "check": "node --check cache-control.middleware.js && node --check page-service.js && node --check lib/page-service.js && node --check page/start.js && node --check page/app.js"
   },
   "engines": { "node": ">=22" },
   "magpie": {
@@ -18,12 +19,14 @@
     "page": {
       "title": "Cache Control",
       "titles": { "zh": "缓存控制" },
-      "file": "page/index.html"
+      "file": "page/index.html",
+      "service": { "port": 3489, "option": "pageServicePort" }
     },
     "permissions": ["providers:list"],
     "options": {
       "mode": "passthrough",
       "log": false,
+      "pageServicePort": 3489,
       "cachedContent": "reject",
       "openaiExplicitProviders": [],
       "rotation": { "strategy": "request", "turns": 10, "tokens": 8000, "style": "marker" },

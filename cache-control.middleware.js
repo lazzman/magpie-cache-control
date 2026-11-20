@@ -120,12 +120,13 @@ function optionsError(options, allowProviders = true) {
   if (options === undefined || options === null) return
   if (!isObject(options)) return "options must be an object"
   const allowed = ["mode", "log", "cachedContent", "openaiExplicitProviders", "rotation"]
-  if (allowProviders) allowed.push("providers")
+  if (allowProviders) allowed.push("providers", "pageServicePort")
   for (const key of Object.keys(options)) {
     if (!allowed.includes(key)) return "unknown option: " + key
   }
   if (options.mode !== undefined && !MODES.includes(options.mode)) return "invalid mode"
   if (options.log !== undefined && typeof options.log !== "boolean") return "log must be a boolean"
+  if (options.pageServicePort !== undefined && (!Number.isSafeInteger(options.pageServicePort) || options.pageServicePort < 1 || options.pageServicePort > 65535)) return "pageServicePort must be an integer from 1 to 65535"
   if (options.cachedContent !== undefined && !["reject", "drop"].includes(options.cachedContent)) return "cachedContent must be reject or drop"
   if (options.openaiExplicitProviders !== undefined && (!Array.isArray(options.openaiExplicitProviders) || options.openaiExplicitProviders.some((provider) => typeof provider !== "string" || !provider.trim()))) {
     return "openaiExplicitProviders must be an array of nonempty provider ids"

@@ -38,7 +38,7 @@ class Element {
   insertAdjacentElement(position, element) { this.adjacent = element }
 }
 
-async function page({ options = { mode: "bust", log: true }, get, set, language = "zh", ready, providers = [{ id: "alpha", name: "Alpha" }, { id: "beta", name: "Beta" }], read } = {}) {
+async function page({ options = { mode: "bust", log: true }, get, set, language = "zh", ready, providers = [{ id: "alpha", name: "Alpha" }, { id: "beta", name: "Beta" }], read, models } = {}) {
   const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map((match) => [match[1], new Element()]))
   const radios = ["bust", "disable-explicit", "passthrough"].map((value) => Object.assign(new Element(), { value }))
   const calls = []
@@ -70,11 +70,16 @@ async function page({ options = { mode: "bust", log: true }, get, set, language 
       },
     },
   }
-  const context = vm.createContext({ document, navigator: { language }, magpie: bridge, console: { error() {} } })
+  const modelCalls = []
+  if (models) elements.get("modelService").content = "1"
+  const context = vm.createContext({ document, navigator: { language }, magpie: bridge, console: { error() {} }, URL, location: { href: "http://127.0.0.1:3489/index.html?bridge=host" }, fetch: async (url, init) => {
+    modelCalls.push({ url: String(url), init })
+    return models(url, init)
+  } })
   vm.runInContext(script, context)
   await new Promise((resolve) => setImmediate(resolve))
   return {
-    elements, calls, radios, context,
+    elements, calls, radios, context, modelCalls,
     element: (id) => elements.get(id),
     theme: (value) => onTheme(value),
     async change(id, value) {
@@ -101,9 +106,12 @@ test("Native page is declared, bundled, and loads only local external scripts", 
   assert.equal(manifest.magpie.page.titles.zh, "缓存控制")
   assert.deepEqual(manifest.magpie.permissions, ["providers:list"])
   assert.ok(manifest.files.includes("page"))
-  assert.equal(manifest.main, undefined)
+  assert.equal(manifest.main, "./page-service.js")
+  assert.deepEqual(manifest.magpie.page.service, { port: 3489, option: "pageServicePort" })
+  assert.ok(manifest.files.includes("lib"))
+  assert.ok(manifest.files.includes("page-service.js"))
   assert.match(html, /<script src="_magpie\/bridge.js"><\/script>/)
-  assert.match(html, /<script src="app.js" defer><\/script>/)
+  assert.match(html, /<script src="start.js" defer><\/script>/)
   assert.doesNotMatch(html, /<script(?!\s+src=)|\son\w+=|<form\b|https?:\/\//)
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1])
   assert.equal(new Set(ids).size, ids.length)
@@ -605,4 +613,94 @@ test("Invalid advanced fields expand and focus the field; editing clears accessi
   await view.save()
   assert.equal(view.element("saveScopeHint").hidden, true)
   assert.equal(view.element("saveButton").dataset.busy, "false")
+})
+
+test("Real id/name-only provider data is filtered by model ownership without losing hidden policies", async () => {
+  const view = await page({ options: { pageServicePort: 3490, providers: { kiro: { mode: "bust" }, alpha: { mode: "passthrough" } } }, providers: [
+    { id: "alpha", name: "Alpha" }, { id: "kiro", name: "Kiro" },
+  ], models: async () => ({ ok: true, json: async () => ({ providerIds: ["alpha", "routing-owner"], modelCount: 2 }) }) })
+  assert.deepEqual(view.element("providerScope").children.map((option) => option.value), ["", "alpha"])
+  assert.match(view.element("providerScope").children[1].textContent, /^\[已配置\]/)
+  assert.equal(view.element("modelListStatus").dataset.state, "modelListActive")
+  assert.match(view.modelCalls[0].url, /^http:\/\/127\.0\.0\.1:3489\/api\/model-providers$/)
+  assert.equal(view.modelCalls[0].init.headers["X-Magpie-Cache-Control"], "models")
+  assert.equal(view.modelCalls[0].init.credentials, "omit")
+  assert.equal(view.calls.length, 0)
+  await view.scope("alpha")
+  await view.mode("bust")
+  await view.save()
+  assert.equal(view.calls[0].providers.kiro.mode, "bust")
+  assert.equal(view.calls[0].pageServicePort, 3490)
+})
+
+test("Model list failure preserves the last successful range and restores a hidden draft when models return", async () => {
+  let ids = ["alpha", "beta"]
+  let fail = false
+  const view = await page({ options: {}, models: async () => {
+    if (fail) throw new Error("Service unavailable")
+    return { ok: true, json: async () => ({ providerIds: ids }) }
+  } })
+  await view.scope("alpha")
+  await view.mode("bust")
+  await view.change("rotationStyle", "punctuation")
+  ids = ["beta"]
+  await view.element("providerReload").emit("click")
+  assert.equal(view.element("providerScope").value, "")
+  assert.equal(view.element("providerScope").children.some((option) => option.value === "alpha"), false)
+  fail = true
+  await view.element("providerReload").emit("click")
+  assert.equal(view.element("modelListStatus").dataset.state, "modelListStale")
+  assert.equal(view.element("providerScope").children.some((option) => option.value === "alpha"), false)
+  view.theme({ lang: "en" })
+  assert.match(view.element("modelListStatus").textContent, /last successful/)
+  fail = false
+  ids = ["alpha", "beta"]
+  await view.element("providerReload").emit("click")
+  await view.scope("alpha")
+  assert.equal(view.element("rotationStyle").value, "punctuation")
+  assert.equal(view.calls.length, 0)
+})
+
+test("Explicitly disabled providers stay hidden even if a model still names them as its owner", async () => {
+  const view = await page({ options: {}, providers: [{ id: "alpha", off: true }, { id: "beta" }], models: async () => ({ ok: true, json: async () => ({ providerIds: ["alpha", "beta"] }) }) })
+  assert.deepEqual(view.element("providerScope").children.map((option) => option.value), ["", "beta"])
+  assert.equal(view.calls.length, 0)
+})
+
+test("A confirmed empty model list hides providers, while a failed or malformed list preserves them", async () => {
+  let response = { ok: false }
+  const view = await page({ options: {}, models: async () => response })
+  assert.deepEqual(view.element("providerScope").children.map((option) => option.value), ["", "alpha", "beta"])
+  assert.equal(view.element("modelListStatus").dataset.state, "modelListError")
+  response = { ok: true, json: async () => ({ providerIds: [null] }) }
+  await view.element("providerReload").emit("click")
+  assert.equal(view.element("modelListStatus").dataset.state, "modelListError")
+  assert.equal(view.element("providerScope").children.length, 3)
+  response = { ok: true, json: async () => ({ providerIds: [] }) }
+  await view.element("providerReload").emit("click")
+  assert.deepEqual(view.element("providerScope").children.map((option) => option.value), [""])
+  assert.equal(view.element("modelListStatus").dataset.state, "modelListEmpty")
+  assert.equal(view.calls.length, 0)
+})
+
+test("Invalid drafts hidden by the model filter do not focus another provider or get silently discarded", async () => {
+  let ids = ["alpha", "beta"]
+  const view = await page({ options: {}, models: async () => ({ ok: true, json: async () => ({ providerIds: ids }) }) })
+  await view.scope("alpha")
+  await view.mode("bust")
+  await view.change("rotationStrategy", "turns")
+  await view.change("rotationTurns", "0")
+  ids = ["beta"]
+  await view.element("providerReload").emit("click")
+  await view.save()
+  assert.equal(view.element("status").dataset.state, "modelDraftUnavailable")
+  assert.equal(view.element("providerScope").value, "")
+  assert.equal(view.calls.length, 0)
+  ids = ["alpha", "beta"]
+  await view.element("providerReload").emit("click")
+  await view.scope("alpha")
+  assert.equal(view.element("rotationTurns").value, "0")
+  await view.change("rotationTurns", "10")
+  await view.save()
+  assert.equal(view.calls[0].providers.alpha.rotation.turns, 10)
 })

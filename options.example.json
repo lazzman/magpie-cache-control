@@ -1,6 +1,7 @@
 {
   "mode": "passthrough",
   "log": false,
+  "pageServicePort": 3489,
   "cachedContent": "reject",
   "openaiExplicitProviders": [],
   "rotation": { "strategy": "request", "turns": 10, "tokens": 8000, "style": "marker" },

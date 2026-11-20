@@ -45,7 +45,7 @@ test("Package entry and defaults match the installable middleware", async () => 
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
   const example = JSON.parse(await readFile(new URL("../options.example.json", import.meta.url), "utf8"))
   assert.deepEqual(example, manifest.magpie.options)
-  assert.equal(manifest.main, undefined)
+  assert.equal(manifest.main, "./page-service.js")
   assert.equal(manifest.exports, undefined)
   assert.deepEqual(Object.keys(plugin).sort(), ["onEvent", "onProvider", "onRequest", "onResponse"])
   await readFile(new URL("../" + manifest.magpie.middleware, import.meta.url))

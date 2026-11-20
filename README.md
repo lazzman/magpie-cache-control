@@ -1,6 +1,6 @@
 # Magpie 跨供应商缓存控制
 
-零运行时依赖的 Magpie gateway middleware。默认关闭缓存控制：请求原样转发，不加入随机标记、不采集缓存使用量，也不输出本插件日志。需要时从「缓存控制」页面主动启用。覆盖 Magpie 的四种客户端协议，并提供 Bedrock Converse、Cohere v2、Ollama Chat/Generate 和 Vertex Gemini 的格式适配。
+无需额外 npm 依赖的 Magpie gateway middleware 与配置页面。默认关闭缓存控制：请求原样转发，不加入随机标记、不采集缓存使用量，也不输出本插件日志。需要时从「缓存控制」页面主动启用。覆盖 Magpie 的四种客户端协议，并提供 Bedrock Converse、Cohere v2、Ollama Chat/Generate 和 Vertex Gemini 的格式适配。
 
 这是尽量规避提示词缓存的工具，不是清空供应商服务端缓存的接口，也不保证所有供应商的缓存命中数都是零。禁用缓存通常会增加输入费用和延迟；新增标记也可能影响模型行为。
 
@@ -19,11 +19,11 @@ $cacheOptions = Get-Content -Raw ./plugins/cache-control/options.example.json
 magpie plugin options magpie-middleware-cache-control $cacheOptions
 ```
 
-也可以在 Magpie 的 Plugins → Installed 中编辑该插件的 Options。包名为 magpie-middleware-cache-control。没有 main/exports，因此它只作为网关中间件加载，不启动 OpenCode/Bun provider plugin。
+也可以在 Magpie 的 Plugins → Installed 中编辑该插件的 Options。包名为 magpie-middleware-cache-control。网关中间件继续由 moejs 执行；main 入口由 Magpie 的 Bun 插件宿主启动一个本地配置页面服务，不注册供应商，也不代发模型生成请求。首次升级到包含页面服务的版本后，请重新启用插件或重开配置页。
 
 启用插件后，Magpie 左侧 Plugins 分组里会出现「缓存控制」标签页。首次打开默认选中「关闭（默认）」，其余策略控件停用；切换模式即可编辑。页面读取现有设置，允许配置 Gemini 缓存引用策略、为明确指定的供应商开启 Responses 显式模式，以及控制诊断日志；点「保存设置」后，调用 Magpie 页面桥的 magpie.options.set 写入本插件选项，下一次请求即可使用。已有明确保存的设置会保留，不会被新的默认值覆盖。页面包含中英文文案，跟随 Magpie 语言，并使用 Magpie 主题变量。
 
-本项目只生成插件文件和测试，不自动安装到正在运行的 Magpie，也不改动现有供应商、密钥或插件配置。本地已确认 Magpie CLI 版本为 0.1.4517；接口依据检查日期为 2026-11-19 的官方插件文档与社区 system-prompt 中间件。
+本项目不自动改动现有供应商、密钥或插件配置。模型过滤在 2026-11-20 使用 Magpie Web 0.1.4582、运行中的网关 0.1.4574 和真实插件配置验证：providers:list 仍返回 Kiro，但 /v1/models 的 owned_by 中没有 Kiro，页面最终将其隐藏。
 
 配置页提供实时策略预览：轮数策略显示固定的 N+1 轮干预起点，比例策略显示允许缓存与逐请求扰动的估算范围，预览不会发送模型请求或自动保存。供应商选择旁标明默认、继承或独立策略；Gemini 与 Responses 专项设置可按需展开。底部保存栏持续显示未保存、保存中、成功或失败状态，保存会处理所有配置范围的修改。校验失败时展开对应设置并聚焦错误字段，草稿保持可编辑。
 
@@ -33,6 +33,7 @@ magpie plugin options magpie-middleware-cache-control $cacheOptions
 {
   "mode": "passthrough",
   "log": false,
+  "pageServicePort": 3489,
   "cachedContent": "reject",
   "openaiExplicitProviders": [],
   "rotation": { "strategy": "request", "turns": 10, "tokens": 8000, "style": "marker" },
@@ -52,6 +53,7 @@ magpie plugin options magpie-middleware-cache-control $cacheOptions
 | rotation.percent | 5 | 使用 percent 策略时保留的输入前缀比例，支持 0 到 100 及小数 |
 | rotation.style | marker | 文本扰动形式：marker、punctuation、whitespace；旧配置保留原标记行为 |
 | providers | {} | 按 Magpie 供应商 id 保存的独立策略；初始为空，未配置的供应商使用默认策略 |
+| pageServicePort | 3489 | 本地配置页面服务端口，1 到 65535；只在根级配置，修改后需重新启用插件 |
 
 未保存任何 Options、选项为空，或未指定 mode 时，也默认关闭。只设置 log 不会自动开启缓存控制。主动选择 bust 才会修改系统提示词。未知配置项和无效类型在 onRequest 中返回 400，避免拼写错误导致策略悄悄失效。
 
@@ -63,7 +65,15 @@ magpie plugin options magpie-middleware-cache-control $cacheOptions
 
 配置范围会过滤供应商列表中标记为关闭的条目（Magpie 的 off: true，也兼容 enabled: false、disabled: true）。已配置独立策略的条目以「[已配置]」标识，编辑中的条目另标「[未保存]」；这里的已配置也包含明确设置为关闭缓存控制的独立策略，与供应商本身是否启用分开。刷新后当前供应商若已关闭，将切回默认策略，已有配置和草稿保留，重新启用后可继续编辑。若该供应商留下无效草稿，保存会提示先启用并修正，不会丢弃草稿或聚焦其他供应商的字段。
 
-关闭状态过滤依赖宿主在 providers:list 中提供状态字段。当前官方文档只承诺返回 id 和 name；若宿主未返回关闭状态，页面无法从名称或插件策略推断供应商是否启用，需要宿主扩展该读取结果。列表读取失败时沿用最近一次成功读取的状态，不会重新显示已知关闭的条目。
+当前真实宿主的 providers:list 只返回 id 和 name。页面因此还会读取网关 /v1/models，按 owned_by 与供应商 id 匹配，只列出有可选模型的供应商。它不以模型 id 的斜杠前缀推断供应商，避免路由别名误判。明确的 off / enabled / disabled 标志仍优先生效；历史策略和草稿不会把不可选条目重新加入列表。已启用但暂时没有可选模型的供应商也会隐藏，这与精确的供应商开关状态不同。
+
+### 模型名单如何到达配置页
+
+静态插件页的 connect-src 'none' 不允许直接 fetch 网关；当前宿主也没有 models:list 页面读取权限。本插件使用 Magpie 原生支持的 magpie.page.service 和 magpie.service：入口页进入本插件的配置页面服务，保留原来的 _magpie/bridge.js，配置读取、保存和主题同步仍由 Magpie 处理。Magpie Web 下使用宿主服务代理，浏览器访问远程 Magpie 时也不会错误地读取浏览器本机的网关；桌面窗口连接宿主本机的页面服务。
+
+页面服务只监听 127.0.0.1，以宿主提供的 MAGPIE_ADDR 定位本机网关，未提供时使用 127.0.0.1:3425。它只请求 GET /v1/models，向页面返回去重的 providerIds 和模型总数；不读取供应商配置文件、调用方密钥或账号凭证，不转发任意 URL 或请求正文，不提供生成及写入接口。模型元数据只在打开页面或刷新供应商列表时读取，缓存控制默认仍关闭。
+
+如果第一次读取模型失败（包括网关要求鉴权、超时或返回不完整的数据），保留原供应商列表并显示提示；刷新失败时沿用上一次成功读取的模型范围。只有成功确认的空列表才隐藏所有供应商，默认策略始终可选。供应商失去可选模型后，当前编辑范围回到默认策略，配置和草稿保留，模型恢复后可继续编辑。若隐藏条目有无效草稿，保存会提示先恢复其模型并修正，不会丢弃草稿或将错误聚焦到其他供应商。
 
 策略按实际路由的 ctx.provider.id 精确匹配，不依据模型名、供应商显示名称、账号或路由组名称猜测。新建一个独立条目时，条目中没有写明的字段使用插件初始默认值，mode 默认为 passthrough；它不是对默认策略逐字段合并。页面保存的是当前供应商的完整策略。没有独立条目的供应商继续使用根级默认策略；如果用户主动开启了根级默认策略，则未单独设置的供应商会继承该主动开启的默认值。供应商显式设为 passthrough 可独立固定为关闭。
 

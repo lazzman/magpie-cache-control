@@ -271,7 +271,7 @@ export function contractCases(plugin) {
     equal(body.system, markerOf(ctx) + "\noriginal")
   })
 
-  const invalidOptions = [[], "bust", { mode: "off" }, { mode: null }, { log: "true" }, { cachedContent: "remove" }, { openaiExplicitProviders: "openai" }, { openaiExplicitProviders: [""] }, { openaiExplicitProviders: [null] }, { unknown: true }]
+  const invalidOptions = [[], "bust", { mode: "off" }, { mode: null }, { log: "true" }, { cachedContent: "remove" }, { openaiExplicitProviders: "openai" }, { openaiExplicitProviders: [""] }, { openaiExplicitProviders: [null] }, { unknown: true }, { pageServicePort: 0 }, { pageServicePort: 65536 }, { pageServicePort: "3489" }, { pageServicePort: null }, { providers: { alpha: { pageServicePort: 3489 } } }]
   for (const options of invalidOptions) {
     add("Invalid options are rejected: " + JSON.stringify(options), () => {
       const ctx = context("responses")
@@ -298,6 +298,16 @@ export function contractCases(plugin) {
       equal(ctx.state, {})
     })
   }
+
+  add("Page service settings do not enable cache control or collect request data", () => {
+    const ctx = context("responses", { mode: "passthrough", pageServicePort: 3489 })
+    const body = { instructions: "unchanged", input: "private request", prompt_cache_key: "original" }
+    const original = copy(body)
+    ensure(plugin.onRequest(body, ctx) === undefined)
+    ensure(!ctx.rejected)
+    equal(body, original)
+    equal(ctx.state, {})
+  })
   const invalidPrompts = [
     ["anthropic", { system: {} }], ["responses", { instructions: [] }],
     ["chat", {}], ["chat", { messages: [{ role: "system", content: null }] }],

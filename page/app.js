@@ -2,6 +2,7 @@ const DEFAULTS = { mode: "passthrough", log: false, cachedContent: "reject", ope
 
 const LABELS = {
   zh: {
+    modelListLoading: "正在读取可选模型…", modelListActive: "仅显示当前有可选模型的供应商；隐藏条目的独立策略仍会保留。", modelListEmpty: "当前没有可选模型。默认策略和已保存的供应商策略保持不变。", modelListError: "暂时无法读取可选模型，已保留供应商列表。请刷新重试。", modelListStale: "模型列表刷新失败，当前沿用上次成功读取的范围。请刷新重试。", modelDraftUnavailable: "当前没有可选模型的供应商有无效草稿。请先在 Magpie 恢复其可选模型，再修正并保存。",
     providerConfigured: "已配置", providerDraft: "未保存", inactiveDraft: "已关闭的供应商有无效草稿，请先在 Magpie 启用该供应商后修正，再保存。",
     pageIntro: "按供应商选择缓存策略，保留你需要的输入前缀。", scopeRoot: "默认策略", scopeOwn: "独立策略", scopeParent: "继承默认", rotationHelpTitle: "扰动形式的限制", styleVisibility: "扰动文本会进入模型上下文，可能影响模型理解。",
     advancedTitle: "协议专项设置", advancedHint: "Gemini 缓存引用与 Responses 显式模式", previewTitle: "策略预览",
@@ -41,6 +42,7 @@ const LABELS = {
     invalidCachedContent: "请选择有效的 Gemini 缓存策略", invalidProvider: "供应商 ID 必须是逗号或换行分隔的名称",
   },
   en: {
+    modelListLoading: "Loading available models…", modelListActive: "Only providers with available models are shown. Hidden providers keep their independent policies.", modelListEmpty: "No models are currently available. Default and saved provider policies are preserved.", modelListError: "Available models could not be read. The provider list is preserved; refresh to retry.", modelListStale: "Model refresh failed. The last successful provider range is still shown; refresh to retry.", modelDraftUnavailable: "A provider with no available models has an invalid draft. Restore its models in Magpie, correct the draft, then save again.",
     providerConfigured: "Configured", providerDraft: "Unsaved", inactiveDraft: "A disabled provider has an invalid draft. Enable it in Magpie, correct the draft, then save again.",
     pageIntro: "Choose a policy for each provider and preserve the input prefix you need.", scopeRoot: "Default policy", scopeOwn: "Independent", scopeParent: "Inherited", rotationHelpTitle: "Perturbation limitations", styleVisibility: "Perturbation text enters model context and may affect interpretation.",
     advancedTitle: "Protocol settings", advancedHint: "Gemini references and Responses explicit mode", previewTitle: "Policy preview",
@@ -101,6 +103,8 @@ const providerReload = $("providerReload")
 const providerReset = $("providerReset")
 let activeScope = ""
 let providerRows = []
+let modelProviderIds = null
+let pageServicePort
 let defaultPolicy = normalize({})
 let providerPolicies = Object.create(null)
 let drafts = Object.create(null)
@@ -121,6 +125,8 @@ function translate(theme) {
   renderProviderChoices()
   const listStatus = $("providerListStatus")
   if (listStatus.dataset.state) listStatus.textContent = LABELS[language][listStatus.dataset.state] || ""
+  const modelStatus = $("modelListStatus")
+  if (modelStatus.dataset.state) modelStatus.textContent = LABELS[language][modelStatus.dataset.state] || ""
   showStatus(status.dataset.state || "")
   renderPreview()
 }
@@ -232,6 +238,10 @@ function providerIsOff(id) {
   return providerRows.some((provider) => provider.id === id && provider.off)
 }
 
+function providerUnavailable(id) {
+  return Boolean(id) && (providerIsOff(id) || (modelProviderIds !== null && !modelProviderIds.has(id)))
+}
+
 function renderProviderChoices() {
   const names = new Map(providerRows.map((provider) => [provider.id, provider.name]))
   const ids = new Set([...names.keys(), ...Object.keys(providerPolicies), ...Object.keys(drafts), activeScope])
@@ -240,7 +250,7 @@ function renderProviderChoices() {
   first.textContent = LABELS[language].scopeDefault
   const choices = [first]
   for (const id of ids) {
-    if (!id || providerIsOff(id)) continue
+    if (!id || providerUnavailable(id)) continue
     const option = document.createElement("option")
     option.value = id
     const name = names.get(id)
@@ -287,7 +297,7 @@ function restoreDraft(draft) {
 
 function showCurrentScope() {
   clearFieldError()
-  if (providerIsOff(activeScope)) activeScope = ""
+  if (providerUnavailable(activeScope)) activeScope = ""
   if (owns(drafts, activeScope)) restoreDraft(drafts[activeScope])
   else if (activeScope && !owns(providerPolicies, activeScope) && owns(drafts, "")) restoreDraft(drafts[""])
   else render(activeScope && owns(providerPolicies, activeScope) ? providerPolicies[activeScope] : defaultPolicy)
@@ -295,6 +305,7 @@ function showCurrentScope() {
 }
 
 function applyDocument(options) {
+  pageServicePort = options?.pageServicePort
   defaultPolicy = normalize(options)
   providerPolicies = Object.create(null)
   if (options?.providers && typeof options.providers === "object" && !Array.isArray(options.providers)) {
@@ -361,7 +372,7 @@ function collectDocument() {
     if (scope) providers[scope] = policy
     else root = policy
   }
-  return { ...root, providers: Object.fromEntries(Object.entries(providers)) }
+  return { ...root, ...(pageServicePort === undefined ? {} : { pageServicePort }), providers: Object.fromEntries(Object.entries(providers)) }
 }
 
 function changed() {
@@ -400,8 +411,8 @@ async function saveSettings() {
   try {
     options = collectDocument()
   } catch (error) {
-    if (providerIsOff(error.scope)) {
-      showStatus("inactiveDraft")
+    if (providerUnavailable(error.scope)) {
+      showStatus(providerIsOff(error.scope) ? "inactiveDraft" : "modelDraftUnavailable")
       return
     }
     if (typeof error.scope === "string") {
@@ -438,21 +449,44 @@ async function loadProviders() {
   providerReload.disabled = true
   $("providerListStatus").dataset.state = "providerListLoading"
   $("providerListStatus").textContent = LABELS[language].providerListLoading
+  $("modelListStatus").dataset.state = "modelListLoading"
+  $("modelListStatus").textContent = LABELS[language].modelListLoading
   try {
-    const result = await magpie.read("providers:list")
-    const rows = Array.isArray(result) ? result : result?.providers
-    if (!Array.isArray(rows)) throw new Error("Unexpected provider list")
-    providerRows = rows.filter((provider) => provider && typeof provider.id === "string" && provider.id.trim()).map((provider) => ({
-      id: provider.id, name: typeof provider.name === "string" ? provider.name : provider.id,
-      off: provider.off === true || provider.enabled === false || provider.disabled === true,
-    }))
-    $("providerListStatus").dataset.state = ""
-    $("providerListStatus").textContent = ""
+    const [providers, models] = await Promise.allSettled([
+      (async () => {
+        const result = await magpie.read("providers:list")
+        const rows = Array.isArray(result) ? result : result?.providers
+        if (!Array.isArray(rows)) throw new Error("Unexpected provider list")
+        return rows.filter((provider) => provider && typeof provider.id === "string" && provider.id.trim()).map((provider) => ({
+          id: provider.id, name: typeof provider.name === "string" ? provider.name : provider.id,
+          off: provider.off === true || provider.enabled === false || provider.disabled === true,
+        }))
+      })(),
+      (async () => {
+        if ($("modelService")?.content !== "1") throw new Error("Page service unavailable")
+        const response = await fetch(new URL("api/model-providers", location.href), { headers: { "X-Magpie-Cache-Control": "models" }, credentials: "omit", cache: "no-store" })
+        if (!response.ok) throw new Error("Model list unavailable")
+        const body = await response.json()
+        if (!Array.isArray(body?.providerIds) || body.providerIds.some((id) => typeof id !== "string" || !id.trim())) throw new Error("Unexpected model list")
+        return new Set(body.providerIds)
+      })(),
+    ])
+    if (providers.status === "fulfilled") {
+      providerRows = providers.value
+      $("providerListStatus").dataset.state = ""
+      $("providerListStatus").textContent = ""
+    } else {
+      $("providerListStatus").dataset.state = "providerListError"
+      $("providerListStatus").textContent = LABELS[language].providerListError
+    }
+    let modelState
+    if (models.status === "fulfilled") {
+      modelProviderIds = models.value
+      modelState = modelProviderIds.size ? "modelListActive" : "modelListEmpty"
+    } else modelState = modelProviderIds === null ? "modelListError" : "modelListStale"
+    $("modelListStatus").dataset.state = modelState
+    $("modelListStatus").textContent = LABELS[language][modelState]
     showCurrentScope()
-  } catch (error) {
-    console.error("cache-control: provider list failed", error)
-    $("providerListStatus").dataset.state = "providerListError"
-    $("providerListStatus").textContent = LABELS[language].providerListError
   } finally {
     providerReload.disabled = false
   }
