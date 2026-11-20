@@ -1,0 +1,8 @@
+{
+  "mode": "passthrough",
+  "log": false,
+  "cachedContent": "reject",
+  "openaiExplicitProviders": [],
+  "rotation": { "strategy": "request", "turns": 10, "tokens": 8000, "style": "marker" },
+  "providers": {}
+}

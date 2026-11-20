@@ -1,0 +1,33 @@
+{
+  "name": "magpie-middleware-cache-control",
+  "version": "0.1.0",
+  "description": "Cross-provider prompt cache controls for Magpie gateway middleware",
+  "type": "module",
+  "files": ["cache-control.middleware.js", "README.md", "options.example.json", "page"],
+  "keywords": ["magpie", "magpie-middleware", "prompt-caching"],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:coverage": "node --test --experimental-test-coverage test/*.test.mjs",
+    "test:moejs": "cd test/moejs && go test -count=1 -v ./...",
+    "test:page": "node --test test/page.test.mjs",
+    "check": "node --check cache-control.middleware.js && node --check page/app.js"
+  },
+  "engines": { "node": ">=22" },
+  "magpie": {
+    "middleware": "./cache-control.middleware.js",
+    "page": {
+      "title": "Cache Control",
+      "titles": { "zh": "缓存控制" },
+      "file": "page/index.html"
+    },
+    "permissions": ["providers:list"],
+    "options": {
+      "mode": "passthrough",
+      "log": false,
+      "cachedContent": "reject",
+      "openaiExplicitProviders": [],
+      "rotation": { "strategy": "request", "turns": 10, "tokens": 8000, "style": "marker" },
+      "providers": {}
+    }
+  }
+}

@@ -1,0 +1,43 @@
+:root { font-family: system-ui, sans-serif; color: var(--magpie-fg, CanvasText); background: var(--magpie-bg, Canvas); line-height: 1.5; font-synthesis: none; -webkit-text-size-adjust: 100%; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; }
+main { width: min(100%, 790px); margin-inline: auto; padding: 28px clamp(16px, 4vw, 36px) 32px; }
+header { display: flex; align-items: end; justify-content: space-between; gap: 16px; padding-bottom: 22px; }
+.eyebrow { display: block; color: var(--magpie-muted, GrayText); font-size: 12px; font-weight: 600; }
+h1, h2, p { margin: 0; }
+h1 { font-size: 23px; line-height: 1.3; font-weight: 640; }
+h2 { font-size: 14px; line-height: 1.4; font-weight: 650; }
+.status { min-height: 20px; color: var(--magpie-muted, GrayText); font-size: 12px; text-align: end; overflow-wrap: anywhere; }
+.status[data-state$="Error"], .status[data-state^="invalid"] { font-weight: 600; }
+fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
+section { padding-block: 19px 21px; border-top: 1px solid var(--magpie-border, color-mix(in srgb, currentColor 15%, transparent)); }
+.intro, .hint, .footer-copy { color: var(--magpie-muted, GrayText); font-size: 12px; }
+.intro { margin-top: 4px; }
+.provider-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 10px 6px; }
+.provider-actions button { background: transparent; color: inherit; border-color: var(--magpie-border, color-mix(in srgb, currentColor 22%, transparent)); }
+#scopeNotice, #providerListStatus { overflow-wrap: anywhere; }
+.protocols { margin-top: 14px; font-size: 12px; }
+.protocols summary { cursor: pointer; }
+.mode-list { display: grid; gap: 8px; margin-top: 14px; }
+.mode-option { display: grid; grid-template-columns: 17px minmax(0, 1fr); align-items: start; gap: 11px; padding: 12px; border: 1px solid var(--magpie-border, color-mix(in srgb, currentColor 16%, transparent)); border-radius: 6px; cursor: pointer; }
+.mode-option:has(input:checked) { border-color: var(--magpie-accent, Highlight); box-shadow: inset 2px 0 0 var(--magpie-accent, Highlight); }
+.mode-option input, .check-row input { margin: 3px 0 0; accent-color: var(--magpie-accent, AccentColor); }
+.mode-copy { display: grid; gap: 2px; min-width: 0; }
+.mode-copy strong { font-size: 13px; font-weight: 600; }
+.mode-copy > span { color: var(--magpie-muted, GrayText); font-size: 12px; }
+.field { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 6px; margin-top: 13px; font-size: 12px; }
+select, textarea, input[type="number"] { width: 100%; min-width: 0; min-height: 36px; padding: 7px 10px; border: 1px solid var(--magpie-border, color-mix(in srgb, currentColor 22%, transparent)); border-radius: 5px; background: var(--magpie-bg, Field); color: inherit; font: inherit; }
+textarea { resize: vertical; }
+.hint { line-height: 1.45; }
+.notice { margin-top: 10px; padding: 9px 11px; border-inline-start: 2px solid var(--magpie-accent, Highlight); color: var(--magpie-muted, GrayText); font-size: 12px; }
+.check-row { display: flex; align-items: start; gap: 9px; min-height: 28px; margin-top: 12px; font-size: 12px; cursor: pointer; }
+.check-row > span { padding-top: 1px; }
+#providerIdsField { margin-inline-start: 26px; }
+footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding-top: 17px; border-top: 1px solid var(--magpie-border, color-mix(in srgb, currentColor 15%, transparent)); }
+.footer-copy { max-width: 470px; }
+button { flex: 0 0 auto; min-height: 36px; padding: 7px 14px; border: 1px solid var(--magpie-accent, Highlight); border-radius: 5px; background: var(--magpie-accent, Highlight); color: var(--magpie-accent-fg, HighlightText); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+button:disabled { cursor: wait; opacity: .65; }
+#retryButton { margin-top: 16px; }
+:focus-visible { outline: 2px solid var(--magpie-accent, Highlight); outline-offset: 2px; }
+@media (max-width: 520px) { main { padding: 20px 15px 24px; } header { align-items: start; } h1 { font-size: 20px; } footer { align-items: stretch; flex-direction: column; gap: 12px; } #saveButton { width: 100%; } }
