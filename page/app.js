@@ -2,6 +2,7 @@ const DEFAULTS = { mode: "passthrough", log: false, cachedContent: "reject", ope
 
 const LABELS = {
   zh: {
+    providerConfigured: "已配置", providerDraft: "未保存", inactiveDraft: "已关闭的供应商有无效草稿，请先在 Magpie 启用该供应商后修正，再保存。",
     pageIntro: "按供应商选择缓存策略，保留你需要的输入前缀。", scopeRoot: "默认策略", scopeOwn: "独立策略", scopeParent: "继承默认", rotationHelpTitle: "扰动形式的限制", styleVisibility: "扰动文本会进入模型上下文，可能影响模型理解。",
     advancedTitle: "协议专项设置", advancedHint: "Gemini 缓存引用与 Responses 显式模式", previewTitle: "策略预览",
     previewRequest: "每次请求都使用新的文本扰动。", previewTurns: "前 {value} 个用户轮次保持不变，从第 {next} 轮开始逐请求扰动。", previewTokens: "保留前 {value} 个估算历史 Token，超过后逐请求扰动。", previewPercent: "保留约前 {value}% 的可见输入，在此之后插入新的扰动。",
@@ -40,6 +41,7 @@ const LABELS = {
     invalidCachedContent: "请选择有效的 Gemini 缓存策略", invalidProvider: "供应商 ID 必须是逗号或换行分隔的名称",
   },
   en: {
+    providerConfigured: "Configured", providerDraft: "Unsaved", inactiveDraft: "A disabled provider has an invalid draft. Enable it in Magpie, correct the draft, then save again.",
     pageIntro: "Choose a policy for each provider and preserve the input prefix you need.", scopeRoot: "Default policy", scopeOwn: "Independent", scopeParent: "Inherited", rotationHelpTitle: "Perturbation limitations", styleVisibility: "Perturbation text enters model context and may affect interpretation.",
     advancedTitle: "Protocol settings", advancedHint: "Gemini references and Responses explicit mode", previewTitle: "Policy preview",
     previewRequest: "Every request receives a fresh text perturbation.", previewTurns: "Keep the first {value} user turns unchanged. Perturb every request from turn {next}.", previewTokens: "Allow the first {value} estimated history tokens to cache, then perturb every request.", previewPercent: "Preserve about the first {value}% of visible input, then insert a fresh perturbation.",
@@ -226,6 +228,10 @@ function owns(object, key) {
   return Object.prototype.hasOwnProperty.call(object, key)
 }
 
+function providerIsOff(id) {
+  return providerRows.some((provider) => provider.id === id && provider.off)
+}
+
 function renderProviderChoices() {
   const names = new Map(providerRows.map((provider) => [provider.id, provider.name]))
   const ids = new Set([...names.keys(), ...Object.keys(providerPolicies), ...Object.keys(drafts), activeScope])
@@ -234,11 +240,15 @@ function renderProviderChoices() {
   first.textContent = LABELS[language].scopeDefault
   const choices = [first]
   for (const id of ids) {
-    if (!id) continue
+    if (!id || providerIsOff(id)) continue
     const option = document.createElement("option")
     option.value = id
     const name = names.get(id)
-    option.textContent = name && name !== id ? name + " · " + id : id
+    const label = name && name !== id ? name + " · " + id : id
+    const tags = []
+    if (owns(providerPolicies, id)) tags.push(LABELS[language].providerConfigured)
+    if (owns(drafts, id)) tags.push(LABELS[language].providerDraft)
+    option.textContent = (tags.length ? "[" + tags.join(" · ") + "] " : "") + label
     choices.push(option)
   }
   providerScope.replaceChildren(...choices)
@@ -277,6 +287,7 @@ function restoreDraft(draft) {
 
 function showCurrentScope() {
   clearFieldError()
+  if (providerIsOff(activeScope)) activeScope = ""
   if (owns(drafts, activeScope)) restoreDraft(drafts[activeScope])
   else if (activeScope && !owns(providerPolicies, activeScope) && owns(drafts, "")) restoreDraft(drafts[""])
   else render(activeScope && owns(providerPolicies, activeScope) ? providerPolicies[activeScope] : defaultPolicy)
@@ -389,6 +400,10 @@ async function saveSettings() {
   try {
     options = collectDocument()
   } catch (error) {
+    if (providerIsOff(error.scope)) {
+      showStatus("inactiveDraft")
+      return
+    }
     if (typeof error.scope === "string") {
       activeScope = error.scope
       showCurrentScope()
@@ -427,10 +442,13 @@ async function loadProviders() {
     const result = await magpie.read("providers:list")
     const rows = Array.isArray(result) ? result : result?.providers
     if (!Array.isArray(rows)) throw new Error("Unexpected provider list")
-    providerRows = rows.filter((provider) => provider && typeof provider.id === "string" && provider.id.trim()).map((provider) => ({ id: provider.id, name: typeof provider.name === "string" ? provider.name : provider.id }))
+    providerRows = rows.filter((provider) => provider && typeof provider.id === "string" && provider.id.trim()).map((provider) => ({
+      id: provider.id, name: typeof provider.name === "string" ? provider.name : provider.id,
+      off: provider.off === true || provider.enabled === false || provider.disabled === true,
+    }))
     $("providerListStatus").dataset.state = ""
     $("providerListStatus").textContent = ""
-    renderProviderChoices()
+    showCurrentScope()
   } catch (error) {
     console.error("cache-control: provider list failed", error)
     $("providerListStatus").dataset.state = "providerListError"

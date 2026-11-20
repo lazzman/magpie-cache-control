@@ -314,6 +314,101 @@ test("Magpie provider names and ids are listed, with every fresh provider off an
   assert.equal(view.calls.length, 0)
 })
 
+test("Disabled Magpie providers are hidden even with independent policies, which remain saved", async () => {
+  const view = await page({ options: { providers: { closed: { mode: "bust" }, explicitOff: { mode: "passthrough" } } }, providers: [
+    { id: "closed", name: "Closed", off: true },
+    { id: "alpha", name: "Alpha", off: false },
+    { id: "explicitOff", name: "Cache policy off" },
+    { id: "disabled", disabled: true },
+    { id: "notEnabled", enabled: false },
+  ] })
+  assert.deepEqual(view.element("providerScope").children.map((option) => option.value), ["", "alpha", "explicitOff"])
+  assert.match(view.element("providerScope").children[2].textContent, /^\[已配置\]/)
+  await view.scope("alpha")
+  await view.mode("bust")
+  await view.save()
+  assert.equal(view.calls[0].providers.closed.mode, "bust")
+  assert.equal(view.calls[0].providers.explicitOff.mode, "passthrough")
+  assert.equal(view.element("providerScope").children.some((option) => option.value === "closed"), false)
+})
+
+test("Provider labels distinguish configured policies from drafts through localization, save and removal", async () => {
+  const view = await page({ options: { providers: { alpha: { mode: "passthrough" } } } })
+  const label = (id) => view.element("providerScope").children.find((option) => option.value === id).textContent
+  assert.match(label("alpha"), /^\[已配置\] Alpha · alpha$/)
+  assert.equal(label("beta"), "Beta · beta")
+  await view.scope("alpha")
+  await view.mode("bust")
+  assert.match(label("alpha"), /^\[已配置 · 未保存\]/)
+  await view.scope("beta")
+  await view.mode("bust")
+  assert.match(label("beta"), /^\[未保存\]/)
+  view.theme({ lang: "en" })
+  assert.match(label("alpha"), /^\[Configured · Unsaved\]/)
+  assert.match(label("beta"), /^\[Unsaved\]/)
+  assert.equal(view.calls.length, 0)
+  await view.save()
+  assert.match(label("alpha"), /^\[Configured\]/)
+  assert.match(label("beta"), /^\[Configured\]/)
+  await view.element("providerReset").emit("click")
+  assert.equal(label("beta"), "Beta · beta")
+  assert.match(label("alpha"), /^\[Configured\]/)
+  await view.save()
+  assert.equal(Object.hasOwn(view.calls[1].providers, "beta"), false)
+})
+
+test("Refreshing a disabled selection returns to default without losing drafts or reintroducing the provider on errors", async () => {
+  let closed = false
+  let fail = false
+  const view = await page({ options: { providers: { alpha: { mode: "bust" } } }, read: async () => {
+    if (fail) throw new Error("Unavailable")
+    return { providers: [{ id: "alpha", name: "Alpha", off: closed }, { id: "beta", name: "Beta" }] }
+  } })
+  await view.scope("alpha")
+  await view.change("rotationStyle", "punctuation")
+  closed = true
+  await view.element("providerReload").emit("click")
+  assert.equal(view.element("providerScope").value, "")
+  assert.equal(view.element("providerScope").children.some((option) => option.value === "alpha"), false)
+  assert.equal(view.radios.find((radio) => radio.checked).value, "passthrough")
+  assert.equal(view.element("saveButton").disabled, false)
+  fail = true
+  await view.element("providerReload").emit("click")
+  view.theme({ lang: "en" })
+  assert.equal(view.element("providerScope").children.some((option) => option.value === "alpha"), false)
+  fail = false
+  closed = false
+  await view.element("providerReload").emit("click")
+  assert.match(view.element("providerScope").children.find((option) => option.value === "alpha").textContent, /^\[Configured · Unsaved\]/)
+  await view.scope("alpha")
+  assert.equal(view.element("rotationStyle").value, "punctuation")
+  await view.save()
+  assert.equal(view.calls[0].providers.alpha.rotation.style, "punctuation")
+})
+
+test("An invalid draft for a newly disabled provider stays intact and cannot focus an unrelated policy", async () => {
+  let closed = false
+  const view = await page({ options: {}, read: async () => [{ id: "alpha", off: closed }] })
+  await view.scope("alpha")
+  await view.mode("bust")
+  await view.change("rotationStrategy", "turns")
+  await view.change("rotationTurns", "0")
+  closed = true
+  await view.element("providerReload").emit("click")
+  await view.save()
+  assert.equal(view.calls.length, 0)
+  assert.equal(view.element("providerScope").value, "")
+  assert.equal(view.element("status").dataset.state, "inactiveDraft")
+  assert.equal(view.element("fieldError").hidden, true)
+  closed = false
+  await view.element("providerReload").emit("click")
+  await view.scope("alpha")
+  assert.equal(view.element("rotationTurns").value, "0")
+  await view.change("rotationTurns", "10")
+  await view.save()
+  assert.equal(view.calls[0].providers.alpha.rotation.turns, 10)
+})
+
 test("Different provider drafts survive switching and are saved together without enabling the default", async () => {
   const view = await page({ options: {} })
   await view.scope("alpha")
