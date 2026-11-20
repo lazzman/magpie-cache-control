@@ -53,6 +53,7 @@ export function onProvider(body, ctx) {
     state.explicitOnly = false
     state.cacheReadTokens = null
     state.cacheWriteTokens = null
+    state.inputTokens = null
     state.warnings = []
   } else state = ctx.state.cacheControl || begin(ctx, options)
   state.providerId = provider.id ?? null
@@ -182,6 +183,7 @@ function begin(ctx, options) {
     explicitOnly: false,
     cacheReadTokens: null,
     cacheWriteTokens: null,
+    inputTokens: null,
     warnings: [],
     rotation: { strategy: options.rotation.strategy, style: options.rotation.style },
     rotationPrepared: false,
@@ -318,17 +320,17 @@ function preparePercent(body, family, state, percent) {
     const text = owner?.[key]
     if (typeof text === "string" && text.length) fields.push({ owner, key, text, editable: editable && text.trim().length > 0 })
   }
-  const addContent = (owner, key) => {
+  const addContent = (owner, key, editable = true) => {
     const content = owner?.[key]
     if (!Array.isArray(content)) {
-      add(owner, key)
+      add(owner, key, editable)
       return
     }
     for (const block of content) {
       if (!isObject(block)) continue
       const plain = block.type === undefined || block.type === "text" || block.type === "input_text" || block.type === "output_text"
       const unsigned = !block.signature && !block.thoughtSignature && !block.thought_signature && !block.thought && !block.annotations?.length
-      add(block, "text", plain && unsigned)
+      add(block, "text", editable && plain && unsigned)
       add(block, "thinking", false)
     }
   }
@@ -340,8 +342,17 @@ function preparePercent(body, family, state, percent) {
   if (Array.isArray(history)) {
     for (const message of history) {
       if (!isObject(message)) continue
-      if (family === "gemini") addContent(message, "parts")
-      else addContent(message, "content")
+      if (family === "gemini") {
+        addContent(message, "parts")
+      } else if (family === "responses" && message.type === "function_call") {
+        add(message, "arguments", false)
+      } else if (family === "responses" && message.type === "custom_tool_call") {
+        add(message, "input", false)
+      } else if (family === "responses" && ["function_call_output", "custom_tool_call_output"].includes(message.type)) {
+        addContent(message, "output", false)
+      } else {
+        addContent(message, "content")
+      }
     }
   } else if (family === "responses") add(body, "input")
   else if (family === "ollama-generate") add(body, "prompt")
@@ -571,6 +582,8 @@ function observe(body, ctx) {
   const usages = [body.usage, body.message?.usage, body.response?.usage, body.usageMetadata, body.usage_metadata, body.metadata?.usage, body.delta?.usage]
   const previousRead = state.cacheReadTokens
   const previousWrite = state.cacheWriteTokens
+  const previousInput = state.inputTokens
+  const responses = protocolFamily(ctx.protocol) === "responses"
   for (const usage of usages) {
     if (!isObject(usage)) continue
     const reads = [
@@ -586,8 +599,9 @@ function observe(body, ctx) {
     ]
     state.cacheReadTokens = largest(state.cacheReadTokens, reads)
     state.cacheWriteTokens = largest(state.cacheWriteTokens, writes)
+    if (responses) state.inputTokens = largest(state.inputTokens, [usage.input_tokens])
   }
-  if (previousRead !== state.cacheReadTokens || previousWrite !== state.cacheWriteTokens) report(ctx, "usage")
+  if (previousRead !== state.cacheReadTokens || previousWrite !== state.cacheWriteTokens || previousInput !== state.inputTokens) report(ctx, "usage")
 }
 
 function largest(current, values) {
@@ -605,6 +619,9 @@ function report(ctx, phase, force = false) {
     provider: ctx.provider?.id ?? state.providerId ?? null, policyScope: state.policyScope ?? "default", removed: state.removed,
     salted: state.salted, explicitOnly: state.explicitOnly,
     cacheReadTokens: state.cacheReadTokens, cacheWriteTokens: state.cacheWriteTokens,
+    inputTokens: state.inputTokens,
+    cacheHitPercent: state.inputTokens > 0 && state.cacheReadTokens !== null && state.cacheReadTokens <= state.inputTokens
+      ? 100 * state.cacheReadTokens / state.inputTokens : null,
     outcome: state.cacheReadTokens === null ? "unknown" : state.cacheReadTokens > 0 ? "hit" : "reported-zero",
     warnings: state.warnings,
     rotation: state.rotation,

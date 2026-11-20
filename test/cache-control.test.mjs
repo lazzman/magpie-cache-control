@@ -26,6 +26,21 @@ test("Logs describe measures and distinguish missing usage from reported zero", 
   assert.doesNotMatch(JSON.stringify(messages), /secret|magpie-cache-control:/)
 })
 
+test("Responses percentage diagnostics use the upstream inclusive input total", (ctx) => {
+  const entries = []
+  ctx.mock.method(console, "log", (entry) => entries.push(JSON.parse(entry)))
+  const context = { protocol: "responses", options: { mode: "bust", log: true, rotation: { strategy: "percent", percent: 5 } }, state: {}, provider: { id: "vendor" }, reject: assert.fail }
+  const body = { input: "x".repeat(200) }
+  plugin.onRequest(body, context)
+  plugin.onProvider(body, context)
+  plugin.onEvent({ response: { usage: { input_tokens_details: { cached_tokens: 932 } } } }, context)
+  assert.equal(entries.at(-1).cacheHitPercent, null)
+  plugin.onEvent({ response: { usage: { input_tokens: 305745, input_tokens_details: { cached_tokens: 932 } } } }, context)
+  assert.equal(entries.at(-1).rotation.percent, 5)
+  assert.equal(entries.at(-1).rotation.prefixTextUnits, 10)
+  assert.equal(entries.at(-1).cacheHitPercent, 100 * 932 / 305745)
+})
+
 test("Package entry and defaults match the installable middleware", async () => {
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
   const example = JSON.parse(await readFile(new URL("../options.example.json", import.meta.url), "utf8"))

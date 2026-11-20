@@ -1178,6 +1178,40 @@ export function contractCases(plugin) {
     equal(markers.size, 3)
   })
 
+  add("Responses percentage includes tool arguments and outputs without editing them", () => {
+    const ctx = context("responses", { rotation: { strategy: "percent", percent: 5 } })
+    const instructions = "s".repeat(100)
+    const input = [
+      { type: "function_call", call_id: "call-one", name: "read", arguments: JSON.stringify({ path: "file.txt" }) },
+      { type: "function_call_output", call_id: "call-one", output: "r".repeat(900) },
+      { type: "custom_tool_call", call_id: "call-two", name: "read_text", input: "file.txt" },
+      { type: "custom_tool_call_output", call_id: "call-two", output: [{ type: "input_text", text: "b".repeat(100) }] },
+      { role: "user", content: "u".repeat(100) },
+    ]
+    const total = 1200 + input[0].arguments.length + input[2].input.length
+    const cutoff = Math.ceil(total * 0.05)
+    const original = { instructions, input }
+    const body = plugin.onRequest(copy(original), ctx)
+    equal(ctx.state.cacheControl.rotation.estimatedTextUnits, total)
+    equal(ctx.state.cacheControl.rotation.prefixTextUnits, cutoff)
+    equal(body, { ...original, instructions: instructions.slice(0, cutoff) + "\n" + markerOf(ctx) + "\n" + instructions.slice(cutoff) })
+    equal(plugin.onProvider(copy(body), ctx), body)
+  })
+
+  add("Responses advances to editable text if the percentage cutoff falls in tool output", () => {
+    const ctx = context("responses", { rotation: { strategy: "percent", percent: 5 } })
+    const original = { input: [
+      { role: "user", content: "first" },
+      { type: "function_call", call_id: "call-one", name: "read", arguments: "{}" },
+      { type: "function_call_output", call_id: "call-one", output: "r".repeat(900) },
+      { role: "user", content: "next" },
+    ] }
+    const body = plugin.onRequest(copy(original), ctx)
+    equal(body.input.slice(0, 3), original.input.slice(0, 3))
+    equal(ctx.state.cacheControl.rotation.prefixTextUnits, 907)
+    equal(body.input[3].content, "\n" + markerOf(ctx) + "\nnext")
+  })
+
   add("Percentage cutoff respects Unicode and leaves signed Gemini blocks intact", () => {
     const ctx = context("gemini", { rotation: { strategy: "percent", percent: 10, style: "whitespace" } })
     const signed = { text: "signed", thoughtSignature: "keep" }
