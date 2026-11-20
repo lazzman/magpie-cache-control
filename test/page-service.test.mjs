@@ -83,19 +83,23 @@ test("The service refuses cross-site reads, DNS rebinding, arbitrary routes and 
   assert.equal(app.requests.length, 0)
 })
 
-test("Service HTML reuses the native bridge and permits its own read-only connection for opaque frames", async (context) => {
+test("Service HTML works without a bridge URL and permits only its own scripts and read-only connection", async (context) => {
   const app = await fixture(context, (_, response) => response.end('{"data":[]}'))
-  const bridge = "https://magpie.example/path/_magpie/plugin/native-token/_magpie/bridge.js"
-  const response = await fetch(app.base + "/index.html?bridge=" + encodeURIComponent(bridge))
+  const response = await fetch(app.base + "/index.html")
   const html = await response.text()
   assert.equal(response.status, 200)
   assert.match(html, /name="cache-control-model-service" content="1"/)
-  assert.ok(html.includes('src="' + bridge + '"'))
+  assert.match(html, /src="start.js"/)
+  assert.doesNotMatch(html, /src="_magpie\/bridge.js"/)
   assert.match(response.headers.get("content-security-policy"), /sandbox allow-scripts/)
   assert.ok(response.headers.get("content-security-policy").includes("connect-src 'self' " + app.base))
-  assert.equal((await fetch(app.base + "/index.html?bridge=" + encodeURIComponent("https://example.com/other.js"))).status, 400)
-  assert.equal((await fetch(app.base + "/index.html?bridge=" + encodeURIComponent("https://example.com/path;script-src/_magpie/plugin/native-token/_magpie/bridge.js"))).status, 400)
-  assert.equal((await fetch(app.base + "/index.html")).status, 400)
+  assert.equal((await fetch(app.base + "/")).status, 200)
+  for (const legacyBridge of ["http://wails.localhost/_magpie/plugin/native-token/_magpie/bridge.js", "wails://wails.localhost/_magpie/plugin/native-token/_magpie/bridge.js", "https://example.com/path;script-src/_magpie/plugin/native-token/_magpie/bridge.js"]) {
+    const legacyResponse = await fetch(app.base + "/index.html?bridge=" + encodeURIComponent(legacyBridge))
+    assert.equal(legacyResponse.status, 200)
+    assert.doesNotMatch(await legacyResponse.text(), /wails\.localhost|example\.com|open-from-magpie/)
+    assert.doesNotMatch(legacyResponse.headers.get("content-security-policy"), /wails\.localhost|example\.com/)
+  }
   const preflight = await fetch(app.base + "/api/model-providers", { method: "OPTIONS", headers: { Origin: "null", "Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "x-magpie-cache-control" } })
   assert.equal(preflight.status, 204)
   assert.equal(preflight.headers.get("access-control-allow-methods"), "GET")

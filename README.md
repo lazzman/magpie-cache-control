@@ -69,7 +69,9 @@ magpie plugin options magpie-middleware-cache-control $cacheOptions
 
 ### 模型名单如何到达配置页
 
-静态插件页的 connect-src 'none' 不允许直接 fetch 网关；当前宿主也没有 models:list 页面读取权限。本插件使用 Magpie 原生支持的 magpie.page.service 和 magpie.service：入口页进入本插件的配置页面服务，保留原来的 _magpie/bridge.js，配置读取、保存和主题同步仍由 Magpie 处理。Magpie Web 下使用宿主服务代理，浏览器访问远程 Magpie 时也不会错误地读取浏览器本机的网关；桌面窗口连接宿主本机的页面服务。
+静态插件页的 connect-src 'none' 不允许直接 fetch 网关；当前宿主也没有 models:list 页面读取权限。本插件使用 Magpie 原生支持的 magpie.page.service 和 magpie.service：入口页用宿主桥定位本插件的配置页面服务，服务页再通过 Magpie 的父窗口消息协议握手。配置读取、保存和主题同步仍由宿主处理，声明权限仍由宿主校验；服务页不再跨域加载 wails.localhost 的 bridge.js。Magpie Web 下使用宿主服务代理，浏览器访问远程 Magpie 时也不会错误地读取浏览器本机的网关；桌面窗口连接宿主本机的页面服务。
+
+服务页面不再要求 bridge 查询参数。缺少参数或旧桌面地址不会返回 open-from-magpie JSON；直接在独立浏览器标签页打开时会显示从 Magpie 侧栏重新打开的说明。入口页暂时保留旧参数，兼容升级时尚未重新加载的服务进程。握手超时会提供重新连接操作，不会让配置控件一直无反馈地停用。
 
 页面服务只监听 127.0.0.1，以宿主提供的 MAGPIE_ADDR 定位本机网关，未提供时使用 127.0.0.1:3425。它只请求 GET /v1/models，向页面返回去重的 providerIds 和模型总数；不读取供应商配置文件、调用方密钥或账号凭证，不转发任意 URL 或请求正文，不提供生成及写入接口。模型元数据只在打开页面或刷新供应商列表时读取，缓存控制默认仍关闭。
 
